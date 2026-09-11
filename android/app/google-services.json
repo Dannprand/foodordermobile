@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "738767356545",
+    "project_id": "foodordercihos",
+    "storage_bucket": "foodordercihos.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:738767356545:android:522120b9e99f2830f58380",
+        "android_client_info": {
+          "package_name": "com.developer.foodordercihos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTFo-r9kGPP8tYrf7BTCgDtAJbUqgVPBA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:738767356545:android:a13f45ecefd75606f58380",
+        "android_client_info": {
+          "package_name": "com.example.foodordercihos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTFo-r9kGPP8tYrf7BTCgDtAJbUqgVPBA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
