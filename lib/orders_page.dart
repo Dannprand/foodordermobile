@@ -9,6 +9,7 @@ import 'notification_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'profile_page.dart';
 import 'package:intl/intl.dart';
+import 'notifications_page.dart';
 
 import 'generate_report.dart';
 import 'pdf_preview_page.dart';
@@ -813,47 +814,57 @@ class _OrdersTabState extends State<OrdersTab> {
                           ),
                         ),
                   ),
-                  Stack(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.grey.shade300),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => NotificationsPage(tenantId: tenantId ?? 5),
                         ),
-                        child: const Icon(
-                          Icons.notifications_outlined,
-                          color: Colors.black87,
-                          size: 22,
-                        ),
-                      ),
-                      if (orders.isNotEmpty && selectedStatus == 2)
-                        Positioned(
-                          right: 2,
-                          top: 2,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFE11D48),
-                              shape: BoxShape.circle,
-                            ),
-                            constraints: const BoxConstraints(
-                              minWidth: 16,
-                              minHeight: 16,
-                            ),
-                            child: Text(
-                              '${orders.length}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
+                      );
+                    },
+                    child: Stack(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: const Icon(
+                            Icons.notifications_outlined,
+                            color: Colors.black87,
+                            size: 22,
                           ),
                         ),
-                    ],
+                        if (orders.isNotEmpty && selectedStatus == 2)
+                          Positioned(
+                            right: 2,
+                            top: 2,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFE11D48),
+                                shape: BoxShape.circle,
+                              ),
+                              constraints: const BoxConstraints(
+                                minWidth: 16,
+                                minHeight: 16,
+                              ),
+                              child: Text(
+                                '${orders.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ],
               ),

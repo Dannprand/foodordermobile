@@ -174,27 +174,310 @@ class _FoodsPageState extends State<FoodsPage> {
   }
 
   Future<void> addCategory(String categoryName) async {
-    if (categoryName.isEmpty) return;
+    final trimmed = categoryName.trim();
+    if (trimmed.isEmpty) return;
 
     try {
       final response = await http.post(
         Uri.parse('http://172.19.10.208/food_order_api/add_category.php'),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
-          'food_category_name': categoryName,
+          'food_category_name': trimmed,
           'tenant_id': widget.tenantId,
         }),
       );
 
       final responseData = jsonDecode(response.body);
       if (response.statusCode == 200 && responseData['success'] == true) {
-        fetchCategories();
+        await fetchCategories();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Kategori '$trimmed' berhasil ditambahkan!"),
+              backgroundColor: const Color(0xFF16A34A),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
       } else {
-        print("Failed to add category: ${responseData['message']}");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(responseData['message'] ?? "Gagal menambahkan kategori"),
+              backgroundColor: const Color(0xFFE11D48),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
       }
     } catch (e) {
-      print("Error adding category: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error: $e"),
+            backgroundColor: const Color(0xFFE11D48),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
     }
+  }
+
+  Future<void> deleteCategory(int categoryId, String categoryName) async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://172.19.10.208/food_order_api/delete_category.php'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          'food_category_id': categoryId,
+          'tenant_id': widget.tenantId,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['success'] == true) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Kategori '$categoryName' berhasil dihapus"),
+                backgroundColor: const Color(0xFF16A34A),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            );
+          }
+          if (selectedCategoryId == categoryId) {
+            setState(() {
+              selectedCategoryId = -1;
+            });
+            await fetchCategories();
+            await fetchAllFoods();
+          } else {
+            await fetchCategories();
+          }
+        } else {
+          _showErrorSnackBar(responseData['message'] ?? "Gagal menghapus kategori");
+        }
+      } else if (response.statusCode == 404) {
+        _showErrorSnackBar("File delete_category.php belum tersedia di server (404)");
+      } else {
+        _showErrorSnackBar("Gagal menghapus kategori (Status: ${response.statusCode})");
+      }
+    } catch (e) {
+      _showErrorSnackBar("Kesalahan koneksi: $e");
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFFE11D48),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  void confirmDeleteCategory(int categoryId, String categoryName) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE11D48).withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.delete_outline_rounded, color: Color(0xFFE11D48), size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  "Hapus Kategori?",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.black),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            "Apakah Anda yakin ingin menghapus kategori \"$categoryName\"?\n\nMenu yang menggunakan kategori ini tidak akan terhapus, namun status kategorinya akan dilepas.",
+            style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Batal", style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await deleteCategory(categoryId, categoryName);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE11D48),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text("Hapus Kategori", style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void showManageCategoriesDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.65,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Kelola Kategori Menu",
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Color(0xFF64748B)),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const Text(
+                    "Pilih kategori untuk menghapus atau tambah kategori baru",
+                    style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+                  ),
+                  const SizedBox(height: 14),
+                  InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      showAddCategoryDialog();
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E5BB0).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF1E5BB0).withValues(alpha: 0.2)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.add_circle_outline_rounded, color: Color(0xFF1E5BB0), size: 20),
+                          SizedBox(width: 10),
+                          Text(
+                            "Tambah Kategori Baru",
+                            style: TextStyle(
+                              color: Color(0xFF1E5BB0),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: categories.isEmpty
+                        ? const Center(
+                            child: Text(
+                              "Belum ada kategori",
+                              style: TextStyle(color: Color(0xFF94A3B8)),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: categories.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                            itemBuilder: (context, index) {
+                              final cat = categories[index];
+                              final catId = cat['food_category_id'] is int
+                                  ? cat['food_category_id']
+                                  : int.tryParse(cat['food_category_id'].toString()) ?? 0;
+                              final catName = cat['food_category_name']?.toString() ?? '';
+
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(Icons.category_outlined, color: Color(0xFF1E5BB0), size: 20),
+                                ),
+                                title: Text(
+                                  catName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: Colors.black,
+                                  ),
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFE11D48), size: 22),
+                                  tooltip: "Hapus Kategori",
+                                  onPressed: () {
+                                    Navigator.pop(context);
+                                    confirmDeleteCategory(catId, catName);
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> increaseStock(int foodId) async {
@@ -344,7 +627,8 @@ class _FoodsPageState extends State<FoodsPage> {
                                 tenantId: widget.tenantId,
                               ),
                             ),
-                          ).then((value) {
+                          ).then((value) async {
+                            await fetchCategories();
                             if (selectedCategoryId == -1) {
                               fetchAllFoods();
                             } else if (selectedCategoryId != null) {
@@ -485,19 +769,28 @@ class _FoodsPageState extends State<FoodsPage> {
                   ),
                   // Kategori dari database
                   ...categories.map(
-                    (cat) => Padding(
-                      padding: const EdgeInsets.only(left: 8.0),
-                      child: _buildCategoryPill(
-                        label: cat['food_category_name'] ?? '',
-                        isSelected: selectedCategoryId == cat['food_category_id'],
-                        onTap: () {
-                          setState(() {
-                            selectedCategoryId = cat['food_category_id'];
-                          });
-                          fetchFoods(selectedCategoryId!);
-                        },
-                      ),
-                    ),
+                    (cat) {
+                      final catId = cat['food_category_id'] is int
+                          ? cat['food_category_id']
+                          : int.tryParse(cat['food_category_id'].toString()) ?? 0;
+                      final catName = cat['food_category_name']?.toString() ?? '';
+
+                      return Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: _buildCategoryPill(
+                          label: catName,
+                          isSelected: selectedCategoryId == catId,
+                          onTap: () {
+                            setState(() {
+                              selectedCategoryId = catId;
+                            });
+                            fetchFoods(selectedCategoryId!);
+                          },
+                          onLongPress: () => confirmDeleteCategory(catId, catName),
+                          onDelete: () => confirmDeleteCategory(catId, catName),
+                        ),
+                      );
+                    },
                   ),
                   // Tombol Tambah Kategori
                   Padding(
@@ -529,6 +822,37 @@ class _FoodsPageState extends State<FoodsPage> {
                       ),
                     ),
                   ),
+                  // Tombol Kelola Kategori (Manage/Hapus)
+                  if (categories.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8.0),
+                      child: GestureDetector(
+                        onTap: showManageCategoriesDialog,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.tune_rounded, size: 15, color: Color(0xFF64748B)),
+                              SizedBox(width: 4),
+                              Text(
+                                "Kelola",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -806,6 +1130,7 @@ class _FoodsPageState extends State<FoodsPage> {
                                             );
                                             if (result == true) {
                                               await Future.delayed(const Duration(milliseconds: 300));
+                                              await fetchCategories();
                                               if (selectedCategoryId == -1) {
                                                 fetchAllFoods();
                                               } else {
@@ -856,12 +1181,18 @@ class _FoodsPageState extends State<FoodsPage> {
     required String label,
     required bool isSelected,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
+    VoidCallback? onDelete,
   }) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: EdgeInsets.symmetric(
+          horizontal: onDelete != null && isSelected ? 12 : 16,
+          vertical: 8,
+        ),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF1E5BB0) : Colors.white,
           borderRadius: BorderRadius.circular(24),
@@ -879,13 +1210,36 @@ class _FoodsPageState extends State<FoodsPage> {
                 ]
               : [],
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-            color: isSelected ? Colors.white : Colors.black,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected ? Colors.white : Colors.black,
+              ),
+            ),
+            if (onDelete != null && isSelected) ...[
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: onDelete,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.25),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 13,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
