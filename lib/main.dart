@@ -105,14 +105,14 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primaryColor: const Color(0xFF075E9C),
+        primaryColor: const Color(0xFF1E5BB0),
         scaffoldBackgroundColor: Colors.white,
         textTheme: GoogleFonts.kumbhSansTextTheme(
           Theme.of(context).textTheme,
         ),
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          selectedItemColor: Color(0xFF075E9C),
-          unselectedItemColor: Colors.grey,
+          selectedItemColor: Color(0xFF1E5BB0),
+          unselectedItemColor: Color(0xFF64748B),
           backgroundColor: Colors.white,
         ),
       ),

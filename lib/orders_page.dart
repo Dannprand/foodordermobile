@@ -68,21 +68,49 @@ class _OrdersPageState extends State<OrdersPage> {
                 child: CircularProgressIndicator(),
               ) // Wait until tenantId is loaded
               : getPages()[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        items: [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.receipt_long),
-            label: "Orders",
-          ),
-          BottomNavigationBarItem(icon: Icon(Icons.fastfood), label: "Foods"),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: "Profile"),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 20,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          currentIndex: _currentIndex,
+          selectedItemColor: const Color(0xFF1E5BB0),
+          unselectedItemColor: const Color(0xFF64748B),
+          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+          type: BottomNavigationBarType.fixed,
+          onTap: (index) {
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.receipt_long_outlined),
+              activeIcon: Icon(Icons.receipt_long_rounded),
+              label: "Orders",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.fastfood_outlined),
+              activeIcon: Icon(Icons.fastfood_rounded),
+              label: "Foods",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person_outline_rounded),
+              activeIcon: Icon(Icons.person_rounded),
+              label: "Profile",
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -113,8 +141,11 @@ class _OrdersTabState extends State<OrdersTab> {
   final startDateController = TextEditingController();
   final endDateController = TextEditingController();
 
+  final searchController = TextEditingController();
+  String searchQuery = '';
+
   int selectedStatus = 2;
-  List orders = [];
+  List<dynamic> orders = [];
   bool isLoading = true;
   int? tenantId;
   late Timer _timer;
@@ -140,102 +171,152 @@ class _OrdersTabState extends State<OrdersTab> {
     bool? isFirstTime = prefs.getBool('isFirstTime');
     if (isFirstTime == null || isFirstTime) {
       prefs.setBool('isNotificationShown', false);
-      prefs.setBool('isFirstTime', false); // Set flag agar tidak reset lagi
+      prefs.setBool('isFirstTime', false);
     }
+  }
+
+  void _startPolling() {
+    _timer = Timer.periodic(Duration(seconds: 10), (timer) {
+      if (tenantId != null) {
+        fetchOrders();
+      }
+    });
   }
 
   Future<void> _loadTenantIdAndFetchOrders() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    tenantId = prefs.getInt('tenant_id');
-    if (tenantId != null) {
+    int? savedTenantId = prefs.getInt('tenant_id');
+
+    if (savedTenantId != null) {
+      setState(() {
+        tenantId = savedTenantId;
+      });
       fetchOrders();
+    } else {
+      print("Tenant ID tidak ditemukan!");
     }
   }
 
-  // Start polling for new orders every 5 seconds
-  Future<void> fetchOrders({
-    bool silent = false,
-    bool showNotification = true,
-    String query = '',
-  }) async {
-    if (!silent) setState(() => isLoading = true);
+  Future<void> fetchOrders() async {
+    if (tenantId == null) {
+      print("Tenant ID belum tersedia, batal fetch.");
+      return;
+    }
 
     try {
+      String url =
+          'http://172.19.10.208/food_order_api/get_orders.php?tenant_id=$tenantId&order_status_id=$selectedStatus';
 
-      if(selectedStatus == 2) {
-        query = 'tenant_id=$tenantId&status=$selectedStatus&filter_type=all';
-      } else if(selectedStatus == 3) {
-        query = 'tenant_id=$tenantId&status=$selectedStatus&filter_type=$selectedFilterType';
-
-        switch (selectedFilterType) {
-          case 'year':
-            query += '&year=${yearController.text}';
-            break;
-          case 'month':
-            query += '&year=${yearController.text}&month=${monthController.text}';
-            break;
-          case 'day':
-            query += '&date=${dayController.text}';
-            break;
-          case 'custom':
-            query += '&start_date=${startDateController.text}&end_date=${endDateController.text}';
-            break;
+      if (selectedStatus == 3) {
+        if (selectedFilterType == 'year') {
+          url += '&year=${yearController.text}';
+        } else if (selectedFilterType == 'month') {
+          url += '&year=${yearController.text}&month=${monthController.text}';
+        } else if (selectedFilterType == 'day') {
+          url += '&day=${dayController.text}';
+        } else if (selectedFilterType == 'custom') {
+          url +=
+          '&from=${startDateController.text}&to=${endDateController.text}';
         }
       }
 
-      final response = await http.get(
-        Uri.parse('http://172.19.10.208/food_order_api/get_orders.php?$query'),
-      );
+      final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
-        final newOrders = jsonDecode(response.body);
-        if (mounted && jsonEncode(orders) != jsonEncode(newOrders)) {
-          setState(() {
-            orders = newOrders;
-            if (!silent) isLoading = false;
-          });
-        } else {
-          if (!silent) setState(() => isLoading = false);
+        final dynamic decoded = jsonDecode(response.body);
+        List<dynamic> fetchedOrders = [];
+
+        if (decoded is List) {
+          fetchedOrders = decoded;
+        } else if (decoded is Map<String, dynamic>) {
+          if (decoded['data'] is List) {
+            fetchedOrders = decoded['data'];
+          } else if (decoded['orders'] is List) {
+            fetchedOrders = decoded['orders'];
+          } else if (decoded['result'] is List) {
+            fetchedOrders = decoded['result'];
+          } else {
+            print("API returned Map without recognised list: $decoded");
+          }
         }
-      } else {
-        if (!silent) {
-          setState(() {
-            orders = [];
-            isLoading = false;
-          });
+
+        if (selectedStatus == 2) {
+          int currentOrderCount = fetchedOrders.length;
+          print("Current Order Count: $currentOrderCount");
+          print("Previous Order Count: $previousOrderCount");
+
+          if (currentOrderCount > previousOrderCount) {
+            print("Order count increased, playing sound and showing notification");
+            _playNotificationSound();
+            _showOrderNotification();
+          }
+
+          previousOrderCount = currentOrderCount;
         }
-      }
-    } catch (e) {
-      if (!silent) {
+
         setState(() {
-          orders = [];
+          orders = fetchedOrders;
           isLoading = false;
         });
+      } else {
+        setState(() {
+          isLoading = false;
+        });
+        print("Gagal mengambil data pesanan: ${response.statusCode}");
       }
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
       print("Error fetching orders: $e");
     }
   }
 
-
-  void changeStatus(int status) {
-    setState(() {
-      selectedStatus = status;
-      isLoading = true; // ini boleh, karena user aktif ganti status
-    });
-    fetchOrders();
-    print(selectedStatus);
+  Future<void> _playNotificationSound() async {
+    try {
+      await _audioPlayer.stop();
+      await _audioPlayer.play(AssetSource('sounds/kachingsound.mp3'));
+      print("[Sound] Playing kachingsound.mp3");
+    } catch (e) {
+      print("[Sound] Error playing sound: $e");
+    }
   }
 
-  void _startPolling() {
-    // Set timer polling hanya setelah data pertama selesai dimuat
-    Timer(Duration(seconds: 1), () {
-      _timer = Timer.periodic(Duration(seconds: 5), (timer) async {
-        await fetchOrders(
-          silent: true,
-          showNotification: false,
-        ); // Tanpa notifikasi
-      });
+  Future<void> _showOrderNotification() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    bool isNotificationShown = prefs.getBool('isNotificationShown') ?? false;
+
+    if (!isNotificationShown) {
+      print("[Notification] Menampilkan notifikasi lokal");
+      _notificationService.showNotification(
+        "Pesanan Baru!",
+        "Ada pesanan masuk, segera proses!",
+      );
+
+      prefs.setBool('isNotificationShown', true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    _audioPlayer.dispose();
+    searchController.dispose();
+    yearController.dispose();
+    monthController.dispose();
+    dayController.dispose();
+    startDateController.dispose();
+    endDateController.dispose();
+    super.dispose();
+  }
+
+  void changeStatus(int newStatus) {
+    setState(() {
+      selectedStatus = newStatus;
+      isLoading = true;
+      orders = [];
     });
+    fetchOrders();
   }
 
   String getMonthName(int month) {
@@ -248,27 +329,18 @@ class _OrdersTabState extends State<OrdersTab> {
 
   Future<Map<String, dynamic>?> showFilterDialog(
       BuildContext context, {
-      String initialFilterType = 'month',
-      int? initialYear,
-      int? initialMonth,
-      DateTime? initialDate,
-      DateTime? initialFromDate,
-      DateTime? initialToDate,
-  }) {
-    // int selectedYear = initialYear ?? DateTime.now().year;
+        String initialFilterType = 'month',
+        int? initialYear,
+        int? initialMonth,
+        DateTime? initialDate,
+        DateTime? initialFromDate,
+        DateTime? initialToDate,
+      }) {
     int selectedMonth = initialMonth ?? DateTime.now().month;
-    DateTime? fromDate = initialFromDate;
-    DateTime? toDate = initialToDate;
+    DateTime? fromDate = initialFromDate ?? DateTime.now().subtract(const Duration(days: 7));
+    DateTime? toDate = initialToDate ?? DateTime.now();
     DateTime selectedDate = initialDate ?? DateTime.now();
     String filterType = initialFilterType;
-
-    @override
-    void initState() {
-      super.initState();
-      final now = DateTime.now();
-      fromDate = now.subtract(const Duration(days: 7));
-      toDate = now;
-    }
 
 
     return showDialog<Map<String, dynamic>>(
@@ -282,92 +354,26 @@ class _OrdersTabState extends State<OrdersTab> {
               onPressed: () => setState(() => filterType = type),
               style: ElevatedButton.styleFrom(
                 elevation: 0,
-                backgroundColor: isSelected ? Colors.blue : Colors.grey[200],
-                foregroundColor: isSelected ? Colors.white : Colors.black,
+                backgroundColor: isSelected ? const Color(0xFF1E5BB0) : const Color(0xFFF1F5F9),
+                foregroundColor: isSelected ? Colors.white : Colors.black87,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: isSelected ? const Color(0xFF1E5BB0) : Colors.grey.shade300,
+                  ),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               ),
-              child: Text(label),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                ),
+              ),
             );
           }
 
-          // Year Picker
-
-          // Widget buildYearPicker() {
-          //   int baseYear = (selectedYearForPicker ~/ 12) * 12;
-          //   List<int> yearRange = List.generate(12, (i) => baseYear + i);
-          //
-          //   return Column(
-          //     children: [
-          //       Row(
-          //         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          //         children: [
-          //           IconButton(
-          //             icon: const Icon(Icons.chevron_left),
-          //             onPressed: () {
-          //               setState(() => selectedYearForPicker -= 12);
-          //             },
-          //           ),
-          //           Text(
-          //             '${yearRange.first} - ${yearRange.last}',
-          //             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          //           ),
-          //           IconButton(
-          //             icon: const Icon(Icons.chevron_right),
-          //             onPressed: () {
-          //               setState(() => selectedYearForPicker += 12);
-          //             },
-          //           ),
-          //         ],
-          //       ),
-          //       const SizedBox(height: 8),
-          //       SizedBox(
-          //         height: 180,
-          //         child: GridView.builder(
-          //           itemCount: yearRange.length,
-          //           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          //             crossAxisCount: 3,
-          //             mainAxisSpacing: 8,
-          //             crossAxisSpacing: 8,
-          //             childAspectRatio: 2.5,
-          //           ),
-          //           itemBuilder: (context, index) {
-          //             final year = yearRange[index];
-          //             final isSelected = year == selectedYearForPicker;
-          //
-          //             return GestureDetector(
-          //               onTap: () {
-          //                 setState(() {
-          //                   selectedYearForPicker = year;
-          //                   selectedYear = year; // hasil final
-          //                 });
-          //               },
-          //               child: Container(
-          //                 alignment: Alignment.center,
-          //                 decoration: BoxDecoration(
-          //                   color: isSelected ? Colors.blue : Colors.white,
-          //                   borderRadius: BorderRadius.circular(12),
-          //                 ),
-          //                 child: Text(
-          //                   '$year',
-          //                   style: TextStyle(
-          //                     color: isSelected ? Colors.white : Colors.black,
-          //                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          //                   ),
-          //                 ),
-          //               ),
-          //             );
-          //           },
-          //         ),
-          //       ),
-          //     ],
-          //   );
-          // }
-
           // Month Picker
-
           Widget buildMonthPicker() {
             final List<String> monthNames = [
               'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -382,17 +388,21 @@ class _OrdersTabState extends State<OrdersTab> {
                   children: [
                     IconButton(
                       onPressed: () => setState(() => selectedMonthYear--),
-                      icon: const Icon(Icons.chevron_left),
+                      icon: const Icon(Icons.chevron_left, color: Colors.black),
                     ),
                     const SizedBox(width: 16),
                     Text(
                       '$selectedMonthYear',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     IconButton(
                       onPressed: () => setState(() => selectedMonthYear++),
-                      icon: const Icon(Icons.chevron_right),
+                      icon: const Icon(Icons.chevron_right, color: Colors.black),
                     ),
                   ],
                 ),
@@ -414,16 +424,20 @@ class _OrdersTabState extends State<OrdersTab> {
                         child: Container(
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: isSelected ? Colors.blue : Colors.white,
+                            color: isSelected ? const Color(0xFF1E5BB0) : Colors.white,
                             borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? const Color(0xFF1E5BB0) : Colors.grey.shade300,
+                            ),
                             boxShadow: isSelected
-                                ? [BoxShadow(color: Colors.black12, blurRadius: 4)]
+                                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4)]
                                 : [],
                           ),
                           child: Text(
                             monthNames[index],
                             style: TextStyle(
                               color: isSelected ? Colors.white : Colors.black,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                             ),
                           ),
                         ),
@@ -447,7 +461,15 @@ class _OrdersTabState extends State<OrdersTab> {
 
             // Header hari
             const List<String> days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-            dayWidgets.addAll(days.map((d) => Center(child: Text(d, style: const TextStyle(fontWeight: FontWeight.bold)))));
+            dayWidgets.addAll(days.map((d) => Center(
+              child: Text(
+                d,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            )));
 
             // Spacer awal bulan
             for (int i = 1; i < startWeekday; i++) {
@@ -465,7 +487,7 @@ class _OrdersTabState extends State<OrdersTab> {
                   child: Container(
                     margin: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.blue : Colors.transparent,
+                      color: isSelected ? const Color(0xFF1E5BB0) : Colors.transparent,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     alignment: Alignment.center,
@@ -487,7 +509,7 @@ class _OrdersTabState extends State<OrdersTab> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.arrow_left),
+                      icon: const Icon(Icons.arrow_left, color: Colors.black),
                       onPressed: () {
                         setState(() {
                           selectedDate = DateTime(selectedDate.year, selectedDate.month - 1, selectedDate.day);
@@ -496,10 +518,14 @@ class _OrdersTabState extends State<OrdersTab> {
                     ),
                     Text(
                       '${getMonthName(selectedDate.month)} ${selectedDate.year}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.black,
+                      ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.arrow_right),
+                      icon: const Icon(Icons.arrow_right, color: Colors.black),
                       onPressed: () {
                         setState(() {
                           selectedDate = DateTime(selectedDate.year, selectedDate.month + 1, selectedDate.day);
@@ -530,7 +556,13 @@ class _OrdersTabState extends State<OrdersTab> {
 
             const List<String> days = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
             dayWidgets.addAll(days.map((d) => Center(
-              child: Text(d, style: const TextStyle(fontWeight: FontWeight.bold)),
+              child: Text(
+                d,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF64748B),
+                ),
+              ),
             )));
 
             for (int i = 1; i < startWeekday; i++) {
@@ -552,7 +584,6 @@ class _OrdersTabState extends State<OrdersTab> {
                   onTap: () {
                     setState(() {
                       if (fromDate != null && toDate != null) {
-                        // Reset selection
                         fromDate = current;
                         toDate = null;
                       } else if (fromDate == null || current.isBefore(fromDate!)) {
@@ -567,9 +598,9 @@ class _OrdersTabState extends State<OrdersTab> {
                     margin: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
                       color: isFrom || isTo
-                          ? Colors.blue
+                          ? const Color(0xFF1E5BB0)
                           : isInRange
-                          ? Colors.blue.withOpacity(0.3)
+                          ? const Color(0xFF1E5BB0).withValues(alpha: 0.15)
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -593,7 +624,7 @@ class _OrdersTabState extends State<OrdersTab> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.arrow_left),
+                      icon: const Icon(Icons.arrow_left, color: Colors.black),
                       onPressed: () {
                         setState(() {
                           selectedDate = DateTime(selectedDate.year, selectedDate.month - 1);
@@ -602,10 +633,14 @@ class _OrdersTabState extends State<OrdersTab> {
                     ),
                     Text(
                       '${getMonthName(selectedDate.month)} ${selectedDate.year}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Colors.black,
+                      ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.arrow_right),
+                      icon: const Icon(Icons.arrow_right, color: Colors.black),
                       onPressed: () {
                         setState(() {
                           selectedDate = DateTime(selectedDate.year, selectedDate.month + 1);
@@ -625,8 +660,22 @@ class _OrdersTabState extends State<OrdersTab> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('From: ${fromDate != null ? "${fromDate!.day}/${fromDate!.month}/${fromDate!.year}" : "-"}'),
-                    Text('To: ${toDate != null ? "${toDate!.day}/${toDate!.month}/${toDate!.year}" : "-"}'),
+                    Text(
+                      'From: ${fromDate != null ? "${fromDate!.day}/${fromDate!.month}/${fromDate!.year}" : "-"}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      'To: ${toDate != null ? "${toDate!.day}/${toDate!.month}/${toDate!.year}" : "-"}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -647,14 +696,12 @@ class _OrdersTabState extends State<OrdersTab> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        // _buildFilterButton('year', 'Year'),
                         _buildFilterButton('month', 'Month'),
                         _buildFilterButton('day', 'Day'),
                         _buildFilterButton('custom', 'Custom')
                       ],
                     ),
                     const SizedBox(height: 12),
-                    // if (filterType == 'year') buildYearPicker(),
                     if (filterType == 'month') buildMonthPicker(),
                     if (filterType == 'day') buildDatePicker(),
                     if (filterType == 'custom') buildCustomRangePicker(),
@@ -673,10 +720,16 @@ class _OrdersTabState extends State<OrdersTab> {
                               'toDate': null,
                             });
                           },
-                          child: const Text("Reset", style: TextStyle(color: Colors.red)),
+                          child: const Text(
+                            "Reset",
+                            style: TextStyle(
+                              color: Color(0xFFE11D48),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
 
-                        TextButton(
+                        ElevatedButton(
                           onPressed: () {
                             Navigator.pop(context, {
                               'type': filterType,
@@ -686,9 +739,22 @@ class _OrdersTabState extends State<OrdersTab> {
                               'fromDate': fromDate,
                               'toDate': toDate,
                             });
-
                           },
-                          child: const Text("Confirm", style: TextStyle(color: Colors.blue)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1E5BB0),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                          ),
+                          child: const Text(
+                            "Confirm",
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ],
                     )
@@ -704,236 +770,434 @@ class _OrdersTabState extends State<OrdersTab> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        children: [
-          Container(
-            color: Color(0xFF075E9C),
-            padding: EdgeInsets.all(16),
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Orders',
-              style: TextStyle(
-                fontSize: 22,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(children: [
-              ChoiceChip(
-                label: Text("On Process"),
-                selected: selectedStatus == 2,
-                onSelected: (_) => changeStatus(2),
-                selectedColor: Colors.blue,
-                backgroundColor: Colors.white, // Warna latar belakang saat tidak dipilih
-                labelStyle: TextStyle(
-                  color: selectedStatus == 2 ? Colors.white : Colors.black,
-                ),
-              ),
-              SizedBox(width: 10),
-              ChoiceChip(
-                label: Text("Completed"),
-                selected: selectedStatus == 3,
-                onSelected: (_) => changeStatus(3),
-                selectedColor: Colors.blue,
-                backgroundColor: Colors.white, // Warna latar belakang saat tidak dipilih
-                labelStyle: TextStyle(
-                  color: selectedStatus == 3 ? Colors.white : Colors.black,
-                ),
-              ),
-              Spacer(),
+    final filteredOrders = orders.where((item) {
+      if (searchQuery.isEmpty) return true;
+      final patientName = (item['patient_name'] ?? '').toString().toLowerCase();
+      final orderNumber = (item['order_number'] ?? item['order_id'] ?? '').toString().toLowerCase();
+      final room = (item['patient_room'] ?? '').toString().toLowerCase();
+      final q = searchQuery.toLowerCase();
+      return patientName.contains(q) || orderNumber.contains(q) || room.contains(q);
+    }).toList();
 
-              if (selectedStatus == 3) ... [
-                //Filter
-                IconButton(
-                  icon: Icon(Icons.filter_alt_outlined, color: Colors.blue),
-                  onPressed: () async {
-                    final result = await showFilterDialog(
-                      context,
-                      initialFilterType: 'month',
-                      initialYear: selectedFilterType == 'month' ? selectedMonthYear : selectedFilterYear,
-                      initialMonth: selectedFilterMonth,
-                      initialDate: selectedFilterDate,
-                      initialFromDate: selectedFromDate,
-                      initialToDate: selectedToDate,
-                    );
-
-                    if (result != null) {
-                      String filterType = result['type'];
-                      int year = result['year'] ?? DateTime.now().year;
-                      int month = result['month'] ?? DateTime.now().month;
-                      DateTime date = result['date'] ?? DateTime.now();
-
-                      setState(() {
-                        selectedFilterType = filterType;
-
-                        if (filterType == 'year') {
-                          selectedFilterYear = year;
-                        } else if (filterType == 'month') {
-                          selectedMonthYear = year;
-                          selectedFilterMonth = month;
-                        } else if (filterType == 'day') {
-                          selectedFilterDate = date;
-                        } else if (filterType == 'custom') {
-                          selectedFromDate = result['fromDate'];
-                          selectedToDate = result['toDate'];
-                        }
-
-                        // Set controller (kalau kamu pakai di UI)
-                        yearController.text = selectedFilterYear.toString();
-                        monthController.text = selectedFilterMonth.toString();
-                        dayController.text = DateFormat('yyyy-MM-dd').format(selectedFilterDate);
-                        if (filterType == 'custom') {
-                          startDateController.text = DateFormat('yyyy-MM-dd').format(selectedFromDate!);
-                          endDateController.text = DateFormat('yyyy-MM-dd').format(selectedToDate!);
-                        }
-                      });
-
-                      fetchOrders();
-                    }
-
-                  },
-                ),
-
-                //download
-                Theme(
-                  data: Theme.of(context).copyWith(
-                    popupMenuTheme: PopupMenuThemeData(
-                      color: Colors.white,
-                      textStyle: TextStyle(color: Colors.black),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    highlightColor: Colors.transparent,
-                    splashColor: Colors.transparent,
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Top App Bar dengan Logo & Icon Notifikasi
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Image.asset(
+                    'assets/icon/logoapp.png',
+                    height: 38,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const Text(
+                          "CIPUTRA HOSPITAL",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
                   ),
-                  child: PopupMenuButton<String>(
-                    icon: Icon(Icons.file_download_outlined, color: Colors.blue),
-                    onSelected: (String value) async {
-                      if (tenantId == null) return;
-
-                      try {
-                        String title = 'Sales Report';
-                        Map<String, String> params = {'tenant_id': tenantId.toString()};
-
-                        switch (selectedFilterType) {
-                          case 'year':
-                            params['year'] = yearController.text;
-                            break;
-                          case 'month':
-                            params['month'] = monthController.text;
-                            params['year'] = yearController.text;
-                            break;
-                          case 'day':
-                            params['day'] = dayController.text;
-                            break;
-                          case 'custom':
-                            params['from'] = startDateController.text;
-                            params['to'] = endDateController.text;
-                            break;
-                          case 'all':
-                            break;
-                        }
-
-                        if (value == 'pdf') {
-                          final pdfBytes = await generatePdfReport(title, params);
-                          final dir = await getApplicationDocumentsDirectory();
-                          final file = File('${dir.path}/sales_report.pdf');
-                          await file.writeAsBytes(pdfBytes);
-
-                          if (context.mounted) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) => PdfPreviewPage(filePath: file.path)),
-                            );
-                          }
-                        } else if (value == 'excel') {
-                          final filePath = await generateExcelReport(params);
-                          if (context.mounted) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) => ExcelPreviewPage(filePath: filePath)),
-                            );
-                          }
-                        }
-                      } catch (e, st) {
-                        debugPrint('Export error: $e\n$st');
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Gagal mengekspor data')),
-                          );
-                        }
-                      }
-                    },
-                    itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                      PopupMenuItem<String>(
-                        value: 'pdf',
-                        child: Row(
-                          children: [
-                            Icon(Icons.picture_as_pdf, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Export PDF'),
-                          ],
+                  Stack(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: const Icon(
+                          Icons.notifications_outlined,
+                          color: Colors.black87,
+                          size: 22,
                         ),
                       ),
-                      PopupMenuItem<String>(
-                        value: 'excel',
-                        child: Row(
-                          children: [
-                            Icon(Icons.table_chart, color: Colors.green),
-                            SizedBox(width: 8),
-                            Text('Export Excel'),
-                          ],
+                      if (orders.isNotEmpty && selectedStatus == 2)
+                        Positioned(
+                          right: 2,
+                          top: 2,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFE11D48),
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
+                            ),
+                            child: Text(
+                              '${orders.length}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                         ),
-                      ),
                     ],
                   ),
-                )
-              ]
+                ],
+              ),
+            ),
 
+            // Date & Title Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    DateFormat('EEEE, d MMMM yyyy').format(DateTime.now()).toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF64748B),
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Orders',
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.black,
+                      letterSpacing: -0.8,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
 
+            // Status Tabs (On Process & Completed)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  _buildStatusPill(
+                    label: "On Process",
+                    isSelected: selectedStatus == 2,
+                    count: selectedStatus == 2 ? orders.length : null,
+                    onTap: () => changeStatus(2),
+                  ),
+                  const SizedBox(width: 10),
+                  _buildStatusPill(
+                    label: "Completed",
+                    isSelected: selectedStatus == 3,
+                    count: selectedStatus == 3 ? orders.length : null,
+                    onTap: () => changeStatus(3),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
 
+            // Search Bar & Filter/Export Actions
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.grey.shade300),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: TextField(
+                        controller: searchController,
+                        onChanged: (val) {
+                          setState(() {
+                            searchQuery = val;
+                          });
+                        },
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.black,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        decoration: const InputDecoration(
+                          hintText: "Search patient name, room, or order #...",
+                          hintStyle: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF94A3B8),
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            size: 20,
+                            color: Color(0xFF64748B),
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(vertical: 13),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (selectedStatus == 3) ...[
+                    const SizedBox(width: 10),
+                    // Filter Button
+                    Container(
+                      height: 46,
+                      width: 46,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.tune_rounded,
+                          color: Colors.black87,
+                          size: 20,
+                        ),
+                        onPressed: () async {
+                          final result = await showFilterDialog(
+                            context,
+                            initialFilterType: 'month',
+                            initialYear: selectedFilterType == 'month' ? selectedMonthYear : selectedFilterYear,
+                            initialMonth: selectedFilterMonth,
+                            initialDate: selectedFilterDate,
+                            initialFromDate: selectedFromDate,
+                            initialToDate: selectedToDate,
+                          );
 
-            ],
-          )
+                          if (result != null) {
+                            String filterType = result['type'];
+                            int year = result['year'] ?? DateTime.now().year;
+                            int month = result['month'] ?? DateTime.now().month;
+                            DateTime date = result['date'] ?? DateTime.now();
 
-          ),
+                            setState(() {
+                              selectedFilterType = filterType;
 
-          Expanded(
-            child: Container(
-              color: Colors.white, // Ini bikin background belakang card putih
-              child: isLoading
-                  ? Center(child: CircularProgressIndicator())
-                  : orders.isEmpty
-                      ? Center(child: Text("No orders found."))
-                      : ListView.builder(
-                          padding: EdgeInsets.all(16),
-                          itemCount: orders.length,
-                          itemBuilder: (context, index) {
-                            final order = orders[index];
-                            final orderDate = DateTime.parse(order['order_date']);
-                            final formattedTime = DateFormat.Hm().format(orderDate); // Hm = 24-hour, mm
+                              if (filterType == 'year') {
+                                selectedFilterYear = year;
+                              } else if (filterType == 'month') {
+                                selectedMonthYear = year;
+                                selectedFilterMonth = month;
+                              } else if (filterType == 'day') {
+                                selectedFilterDate = date;
+                              } else if (filterType == 'custom') {
+                                selectedFromDate = result['fromDate'];
+                                selectedToDate = result['toDate'];
+                              }
 
-                            return Card(
-                              color: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                              yearController.text = selectedFilterYear.toString();
+                              monthController.text = selectedFilterMonth.toString();
+                              dayController.text = DateFormat('yyyy-MM-dd').format(selectedFilterDate);
+                              if (filterType == 'custom') {
+                                startDateController.text = DateFormat('yyyy-MM-dd').format(selectedFromDate!);
+                                endDateController.text = DateFormat('yyyy-MM-dd').format(selectedToDate!);
+                              }
+                            });
+
+                            fetchOrders();
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Export Button
+                    Theme(
+                      data: Theme.of(context).copyWith(
+                        popupMenuTheme: PopupMenuThemeData(
+                          color: Colors.white,
+                          textStyle: const TextStyle(color: Colors.black),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      child: Container(
+                        height: 46,
+                        width: 46,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: PopupMenuButton<String>(
+                          icon: const Icon(
+                            Icons.file_download_outlined,
+                            color: Colors.black87,
+                            size: 20,
+                          ),
+                          onSelected: (String value) async {
+                            if (tenantId == null) return;
+
+                            try {
+                              String title = 'Sales Report';
+                              Map<String, String> params = {'tenant_id': tenantId.toString()};
+
+                              switch (selectedFilterType) {
+                                case 'year':
+                                  params['year'] = yearController.text;
+                                  break;
+                                case 'month':
+                                  params['month'] = monthController.text;
+                                  break;
+                                case 'day':
+                                  params['day'] = dayController.text;
+                                  break;
+                                case 'custom':
+                                  params['from'] = startDateController.text;
+                                  params['to'] = endDateController.text;
+                                  break;
+                                case 'all':
+                                  break;
+                              }
+
+                              if (value == 'pdf') {
+                                final pdfBytes = await generatePdfReport(title, params);
+                                final dir = await getApplicationDocumentsDirectory();
+                                final file = File('${dir.path}/sales_report.pdf');
+                                await file.writeAsBytes(pdfBytes);
+
+                                if (context.mounted) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => PdfPreviewPage(filePath: file.path)),
+                                  );
+                                }
+                              } else if (value == 'excel') {
+                                final filePath = await generateExcelReport(params);
+                                if (context.mounted) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => ExcelPreviewPage(filePath: filePath)),
+                                  );
+                                }
+                              }
+                            } catch (e, st) {
+                              debugPrint('Export error: $e\n$st');
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Gagal mengekspor data')),
+                                );
+                              }
+                            }
+                          },
+                          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                            const PopupMenuItem<String>(
+                              value: 'pdf',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.picture_as_pdf, color: Color(0xFFE11D48), size: 20),
+                                  SizedBox(width: 8),
+                                  Text('Export PDF', style: TextStyle(color: Colors.black)),
+                                ],
                               ),
-                              margin: EdgeInsets.only(bottom: 12),
-                              elevation: 2,
-                              child: ListTile(
-                                title: Text(order['patient_name']),
-                                subtitle: Text("${order['total_menus']} Menu - $formattedTime "),
-                                trailing: ElevatedButton(
-                                  onPressed: () {
+                            ),
+                            const PopupMenuItem<String>(
+                              value: 'excel',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.table_chart, color: Color(0xFF16A34A), size: 20),
+                                  SizedBox(width: 8),
+                                  Text('Export Excel', style: TextStyle(color: Colors.black)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Order List Section
+            Expanded(
+              child: isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Color(0xFF1E5BB0)),
+                    )
+                  : filteredOrders.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.receipt_long_outlined,
+                                size: 56,
+                                color: Colors.grey.shade400,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                "No orders found.",
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                          itemCount: filteredOrders.length,
+                          itemBuilder: (context, index) {
+                            final order = filteredOrders[index];
+                            DateTime? orderDate;
+                            try {
+                              orderDate = DateTime.parse(order['order_date']);
+                            } catch (_) {}
+
+                            final formattedTime = orderDate != null
+                                ? DateFormat.Hm().format(orderDate)
+                                : '';
+
+                            final patientName = order['patient_name'] ?? 'Guest';
+                            final orderNumber = order['order_number'] ?? '#ORD-${order['order_id']}';
+                            final totalMenus = order['total_menus'] ?? '1';
+                            final patientRoom = order['patient_room'];
+                            final grandTotal = order['grand_total'] != null
+                                ? int.tryParse(order['grand_total'].toString()) ?? 0
+                                : null;
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.grey.shade200),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(20),
+                                  onTap: () {
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -943,20 +1207,272 @@ class _OrdersTabState extends State<OrdersTab> {
                                       ),
                                     );
                                   },
-                                  child: Text("View order"),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.blue,
-                                    foregroundColor: Colors.white,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // Header Baris: Patient Name & Order Number
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                patientName,
+                                                style: const TextStyle(
+                                                  fontSize: 17,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.black,
+                                                ),
+                                              ),
+                                            ),
+                                            Text(
+                                              orderNumber.toString().startsWith('#')
+                                                  ? orderNumber.toString()
+                                                  : '#$orderNumber',
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF64748B),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+
+                                        // Lokasi Kamar Pasien jika ada
+                                        if (patientRoom != null && patientRoom.toString().isNotEmpty) ...[
+                                          Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.location_on_outlined,
+                                                size: 14,
+                                                color: Color(0xFF64748B),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                "Room $patientRoom",
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.black87,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                        ],
+
+                                        // Badge Menu & Jam Order
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black,
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(
+                                                    Icons.restaurant_menu_rounded,
+                                                    size: 13,
+                                                    color: Colors.white,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    "$totalMenus Menu",
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            if (formattedTime.isNotEmpty)
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.grey.shade100,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.access_time_rounded,
+                                                      size: 13,
+                                                      color: Color(0xFF64748B),
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      formattedTime,
+                                                      style: const TextStyle(
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: Colors.black87,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+
+                                        const SizedBox(height: 14),
+                                        const Divider(height: 1, thickness: 0.8, color: Color(0xFFF1F5F9)),
+                                        const SizedBox(height: 12),
+
+                                        // Footer Baris: Total Price & Tombol View Detail
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          children: [
+                                            Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Text(
+                                                  "Total Order",
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Color(0xFF64748B),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  grandTotal != null
+                                                      ? "Rp ${NumberFormat('#,###', 'id_ID').format(grandTotal)}"
+                                                      : "Detail pesanan",
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.w900,
+                                                    color: Colors.black,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            ElevatedButton(
+                                              onPressed: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (context) => OrderDetailPage(
+                                                      orderId: order['order_id'],
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFF1E5BB0),
+                                                foregroundColor: Colors.white,
+                                                elevation: 0,
+                                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                              ),
+                                              child: const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    "View Order",
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                  SizedBox(width: 4),
+                                                  Icon(
+                                                    Icons.arrow_forward_ios_rounded,
+                                                    size: 12,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             );
                           },
-                      ),
+                        ),
             ),
-          )
+          ],
+        ),
+      ),
+    );
+  }
 
-        ],
+  Widget _buildStatusPill({
+    required String label,
+    required bool isSelected,
+    int? count,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF1E5BB0) : Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF1E5BB0) : Colors.grey.shade300,
+            width: 1.2,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF1E5BB0).withValues(alpha: 0.28),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : [],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected ? Colors.white : Colors.black,
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? Colors.white.withValues(alpha: 0.25)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1073,244 +1589,508 @@ class OrderDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(50),
-        child: Container(
-          color: Color(0xFF075E9C),
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              GestureDetector(
-                onTap: () {
-                  Navigator.pop(context);
-                },
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    top: 12,
-                  ), // Sesuaikan padding untuk menurunkan tombol
-                  child: Icon(Icons.arrow_back, color: Colors.white),
-                ),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      top: 12,
-                    ), // Sesuaikan padding untuk menurunkan teks
-                    child: Text(
-                      'Order Details',
-                      style: TextStyle(
-                        fontSize: 22,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.black, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Order Details',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
           ),
+        ),
+        centerTitle: true,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(color: Colors.grey.shade200, height: 1),
         ),
       ),
       body: FutureBuilder(
         future: fetchOrderDetail(orderId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
+            return const Center(
+              child: CircularProgressIndicator(color: Color(0xFF1E5BB0)),
+            );
           } else if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
+            return Center(
+              child: Text(
+                "Error: ${snapshot.error}",
+                style: const TextStyle(color: Color(0xFFE11D48)),
+              ),
+            );
           } else if (!snapshot.hasData || snapshot.data == null) {
-            return Center(child: Text("No data found."));
+            return const Center(
+              child: Text(
+                "No data found.",
+                style: TextStyle(color: Color(0xFF64748B)),
+              ),
+            );
           } else {
             final List<dynamic> orders = snapshot.data!;
             final order = orders[0]; // Info umum diambil dari data pertama
 
+            final patientRole = order['patient_role'] == 'patient_guardian'
+                ? 'Companion'
+                : order['patient_role'] == 'patient'
+                    ? 'Patient'
+                    : order['patient_role'] ?? 'Patient';
+
             return ListView(
-              padding: EdgeInsets.all(16),
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.all(20),
               children: [
-                Text(
-                 "Ordered by: ${order['patient_name'] ?? 'N/A'} (${order['patient_role'] == 'patient_guardian' ? 'Companion' : order['patient_role'] == 'patient' ? 'Patient' : order['patient_role'] ?? 'N/A'})",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                // Info Pasien & Order Card
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              order['patient_name'] ?? 'N/A',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: Text(
+                              patientRole,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Divider(height: 1, color: Colors.grey.shade200),
+                      const SizedBox(height: 12),
+                      _buildDetailRow("Order ID", "#${order['order_number'] ?? orderId}"),
+                      _buildDetailRow("Room", order['patient_room'] ?? 'N/A'),
+                      _buildDetailRow("MRN", order['patient_mrm'] ?? 'N/A'),
+                      _buildDetailRow("Date", order['order_date'] ?? 'N/A'),
+                    ],
+                  ),
                 ),
-                Text("Order ID: ${order['order_number'] ?? 'N/A'}"),
-                Text("Room: ${order['patient_room'] ?? 'N/A'}"),
-                Text("MRN: ${order['patient_mrm'] ?? 'N/A'}"),
-                Text("Date: ${order['order_date'] ?? 'N/A'}"),
-                SizedBox(height: 16),
-                Divider(),
-                Text(
-                  "List of Orders:",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                const SizedBox(height: 20),
+
+                // Section List of Orders
+                const Text(
+                  "Ordered Items",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
                 ),
-                SizedBox(height: 2),
+                const SizedBox(height: 10),
+
                 ...orders.map((item) {
                   final variations = item['variations'] as List<dynamic>?;
-
-                  final basePrice =
-                      int.tryParse(item['food_price'].toString()) ?? 0;
-                  final quantity =
-                      int.tryParse(item['quantity'].toString()) ?? 1;
-                  final variationTotal =
-                      variations?.fold<int>(
+                  final basePrice = int.tryParse(item['food_price'].toString()) ?? 0;
+                  final quantity = int.tryParse(item['quantity'].toString()) ?? 1;
+                  final variationTotal = variations?.fold<int>(
                         0,
-                        (sum, v) =>
-                            sum +
-                            (int.tryParse(v['variation_price'].toString()) ??
-                                0),
+                        (sum, v) => sum + (int.tryParse(v['variation_price'].toString()) ?? 0),
                       ) ??
                       0;
                   final subtotal = (basePrice + variationTotal) * quantity;
 
-                  return Card(
-                    color: Colors.white,
-                    elevation: 4,
-                    margin: EdgeInsets.symmetric(vertical: 8),
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "${item['quantity']} x ${item['food_name']}",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text("Harga: Rp ${NumberFormat('#,###', 'id_ID').format(basePrice)}"),
-                          if (variations != null && variations.isNotEmpty)
-                            ...variations.map(
-                              (v) => Text(
-                                "- ${v['food_variation_type_name']} : ${v['food_variation_name']} (+Rp ${v['variation_price']})",
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E5BB0).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                "${item['quantity']}x",
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF1E5BB0),
+                                ),
                               ),
                             ),
-                          if (item['notes'] != null &&
-                              item['notes'].toString().isNotEmpty)
-                            Text("- Notes: ${item['notes']}"),
-                          SizedBox(height: 4),
-                          Text(
-                            "Subtotal: Rp ${NumberFormat('#,###', 'id_ID').format(subtotal)}",
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item['food_name'] ?? '',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    "Rp ${NumberFormat('#,###', 'id_ID').format(basePrice)}",
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              "Rp ${NumberFormat('#,###', 'id_ID').format(subtotal)}",
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (variations != null && variations.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade200),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: variations.map((v) => Padding(
+                                padding: const EdgeInsets.only(bottom: 2),
+                                child: Text(
+                                  "• ${v['food_variation_type_name']}: ${v['food_variation_name']} (+Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(v['variation_price'].toString()) ?? 0)})",
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              )).toList(),
+                            ),
                           ),
                         ],
-                      ),
+                        if (item['notes'] != null && item['notes'].toString().isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.edit_note_rounded, size: 16, color: Color(0xFF1E5BB0)),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  "Notes: ${item['notes']}",
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
                     ),
                   );
                 }).toList(),
-                Divider(),
-                SizedBox(height: 8),
-                Text(
-                 "Total Price: Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['total_price'].toString()) ?? 0)}",
-                  style: TextStyle(fontSize: 16),
-                ),
-                Text(
-                  "Service Charge: Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['service_charge'].toString()) ?? 0)}",
-                  style: TextStyle(fontSize: 16),
-                ),
-                Text(
-                  "Tax: Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['order_tax'].toString()) ?? 0)}",
-                  style: TextStyle(fontSize: 16),
-                ),
-                (int.tryParse(order['insurance_discount']?.toString() ?? '0') ?? 0) > 0
-                    ? Text(
-                  "Discount Benefit Asuransi: - Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['insurance_discount'].toString()) ?? 0)}",
-                  style: TextStyle(fontSize: 16),
-                )
-                    : SizedBox.shrink(),
-                SizedBox(height: 4),
-                Text(
-                 "Grand Total: Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['grand_total'].toString()) ?? 0)}",
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[800],
-                  ),
-                ),
-                SizedBox(height: 16),
+                const SizedBox(height: 10),
 
-                if (order['order_status_id'] == 2) ... [
-                  ElevatedButton(
-                    onPressed: () {
-                      completeOrder(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF075E9C),
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(double.infinity, 48),
-                    ),
-                    child: Text("Complete the order"),
+                // Ringkasan Pembayaran
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
                   ),
-                  SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      String rejectReason = "";
-                      showDialog(
-                        context: context,
-                        builder: (context) {
-                          return AlertDialog(
-                            backgroundColor: Colors.white,
-                            title: Text("Reject Order"),
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text("Are you sure you want to cancel this order? Please provide a reason why you want to cancel it.",
-                                  textAlign: TextAlign.justify,),
-                                SizedBox(height: 12),
-                                TextField(
-                                  decoration: InputDecoration(
-                                    hintText: "Enter reason...",
-                                    border: OutlineInputBorder(),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderSide: BorderSide(color: Colors.blue),
-                                    ),
-                                  ),
-                                  maxLines: 4,
-                                  onChanged: (value) {
-                                    rejectReason = value;
-                                  },
-                                ),
-                              ],
+                  child: Column(
+                    children: [
+                      _buildSummaryRow(
+                        "Total Price",
+                        "Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['total_price'].toString()) ?? 0)}",
+                      ),
+                      _buildSummaryRow(
+                        "Service Charge",
+                        "Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['service_charge'].toString()) ?? 0)}",
+                      ),
+                      _buildSummaryRow(
+                        "Tax",
+                        "Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['order_tax'].toString()) ?? 0)}",
+                      ),
+                      if ((int.tryParse(order['insurance_discount']?.toString() ?? '0') ?? 0) > 0)
+                        _buildSummaryRow(
+                          "Discount Benefit Asuransi",
+                          "- Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['insurance_discount'].toString()) ?? 0)}",
+                          isDiscount: true,
+                        ),
+                      const SizedBox(height: 8),
+                      Divider(height: 1, color: Colors.grey.shade200),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            "Grand Total",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black,
                             ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: Text("Cancel"),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.black,
-                                ),
-                              ),
-                              ElevatedButton(
-                                onPressed: () {
-                                  rejectOrder(context, orderId, rejectReason);
+                          ),
+                          Text(
+                            "Rp ${NumberFormat('#,###', 'id_ID').format(int.tryParse(order['grand_total'].toString()) ?? 0)}",
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Tombol Aksi jika status On Process (2)
+                if (order['order_status_id'] == 2) ...[
+                  Row(
+                    children: [
+                      // Reject Button
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              String rejectReason = "";
+                              showDialog(
+                                context: context,
+                                builder: (context) {
+                                  return AlertDialog(
+                                    backgroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    title: const Text(
+                                      "Reject Order",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black,
+                                      ),
+                                    ),
+                                    content: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Text(
+                                          "Are you sure you want to cancel this order? Please provide a reason.",
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Color(0xFF64748B),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        TextField(
+                                          decoration: InputDecoration(
+                                            hintText: "Enter reason...",
+                                            hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                            focusedBorder: const OutlineInputBorder(
+                                              borderRadius: BorderRadius.all(Radius.circular(10)),
+                                              borderSide: BorderSide(color: Color(0xFFE11D48)),
+                                            ),
+                                          ),
+                                          style: const TextStyle(color: Colors.black),
+                                          maxLines: 3,
+                                          onChanged: (value) {
+                                            rejectReason = value;
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text("Cancel", style: TextStyle(color: Color(0xFF64748B))),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () {
+                                          rejectOrder(context, orderId, rejectReason);
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFFE11D48),
+                                          foregroundColor: Colors.white,
+                                          elevation: 0,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                        ),
+                                        child: const Text("Reject"),
+                                      ),
+                                    ],
+                                  );
                                 },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.red,
-                                  foregroundColor: Colors.white,
-                                ),
-                                child: Text("Reject"),
+                              );
+                            },
+                            icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFFE11D48)),
+                            label: const Text(
+                              "Reject",
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFE11D48),
                               ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: const Color(0xFFE11D48).withValues(alpha: 0.5)),
+                              backgroundColor: const Color(0xFFE11D48).withValues(alpha: 0.06),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
 
-
-                            ],
-                          );
-                        },
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(double.infinity, 48),
-                    ),
-                    child: Text("Reject the order"),
-                  )
-                ]
-
+                      // Complete Order Button
+                      Expanded(
+                        flex: 2,
+                        child: SizedBox(
+                          height: 48,
+                          child: ElevatedButton.icon(
+                            onPressed: () => completeOrder(context),
+                            icon: const Icon(Icons.check_rounded, size: 18, color: Colors.white),
+                            label: const Text(
+                              "Complete Order",
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF16A34A),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
               ],
             );
           }
         },
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF64748B),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.black,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow(String label, String value, {bool isDiscount = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: isDiscount ? const Color(0xFF16A34A) : const Color(0xFF64748B),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: isDiscount ? const Color(0xFF16A34A) : Colors.black,
+            ),
+          ),
+        ],
       ),
     );
   }

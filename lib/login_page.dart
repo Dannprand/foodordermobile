@@ -114,7 +114,7 @@ class _LoginPageState extends State<LoginPage> {
             top: 0,
             left: 0,
             right: 0,
-            height: size.height * 0.48,
+            height: size.height * 0.55,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -130,36 +130,37 @@ class _LoginPageState extends State<LoginPage> {
                       end: Alignment.bottomCenter,
                       colors: [
                         Colors.black.withValues(alpha: 0.25),
-                        Colors.black.withValues(alpha: 0.65),
+                        Colors.black.withValues(alpha: 0.7),
                       ],
                     ),
                   ),
                 ),
-                // Teks simpel di area atas kiri
+                // Teks simpel di area atas kiri & Logo di pojok kanan atas
                 Positioned(
-                  top: MediaQuery.of(context).padding.top + 28,
+                  top: MediaQuery.of(context).padding.top + 20,
                   left: 24,
                   right: 24,
-                  child: const Text(
-                    "Food Order\nManagement",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      height: 1.2,
-                      letterSpacing: -0.5,
-                    ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Logo polos transparan di pojok kanan atas
+                      Image.asset(
+                        'assets/icon/logoapp.png',
+                        height: 58,
+                        fit: BoxFit.contain,
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
 
-          // Floating Sheet dari bawah (menempel bawah dengan rounded top)
+          // Floating Sheet dari bawah (tinggi pas, tidak terlalu tinggi)
           Align(
             alignment: Alignment.bottomCenter,
             child: Container(
-              height: size.height * 0.58,
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: const BorderRadius.vertical(
@@ -185,6 +186,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       // Handle bar indikator
                       Center(
@@ -197,21 +199,21 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 18),
 
-                      // Judul Login di tengah
+                      // Judul Login lebih bold
                       const Center(
                         child: Text(
                           "Login",
                           style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E293B),
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.black,
                             letterSpacing: -0.5,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 22),
 
                       // Username field
                       const Text(
@@ -219,13 +221,13 @@ class _LoginPageState extends State<LoginPage> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF334155),
+                          color: Colors.black87,
                         ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: usernameController,
-                        style: const TextStyle(fontSize: 14),
+                        style: const TextStyle(fontSize: 14, color: Colors.black),
                         decoration: InputDecoration(
                           hintText: "Masukkan username atau email",
                           hintStyle: TextStyle(
@@ -235,7 +237,7 @@ class _LoginPageState extends State<LoginPage> {
                           prefixIcon: const Icon(
                             Icons.person_outline_rounded,
                             size: 20,
-                            color: Color(0xFF075E9C),
+                            color: Color(0xFF1E5BB0),
                           ),
                           filled: true,
                           fillColor: const Color(0xFFF8FAFC),
@@ -254,7 +256,7 @@ class _LoginPageState extends State<LoginPage> {
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: const BorderSide(
-                              color: Color(0xFF075E9C),
+                              color: Color(0xFF1E5BB0),
                               width: 1.6,
                             ),
                           ),
@@ -268,14 +270,14 @@ class _LoginPageState extends State<LoginPage> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF334155),
+                          color: Colors.black87,
                         ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: passwordController,
                         obscureText: !_isPasswordVisible,
-                        style: const TextStyle(fontSize: 14),
+                        style: const TextStyle(fontSize: 14, color: Colors.black),
                         decoration: InputDecoration(
                           hintText: "Masukkan password Anda",
                           hintStyle: TextStyle(
@@ -285,7 +287,7 @@ class _LoginPageState extends State<LoginPage> {
                           prefixIcon: const Icon(
                             Icons.lock_outline_rounded,
                             size: 20,
-                            color: Color(0xFF075E9C),
+                            color: Color(0xFF1E5BB0),
                           ),
                           suffixIcon: IconButton(
                             icon: Icon(
@@ -318,7 +320,7 @@ class _LoginPageState extends State<LoginPage> {
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: const BorderSide(
-                              color: Color(0xFF075E9C),
+                              color: Color(0xFF1E5BB0),
                               width: 1.6,
                             ),
                           ),
@@ -333,10 +335,10 @@ class _LoginPageState extends State<LoginPage> {
                         child: ElevatedButton(
                           onPressed: isLoading ? null : login,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF075E9C),
+                            backgroundColor: const Color(0xFF1E5BB0),
                             elevation: 4,
                             shadowColor:
-                                const Color(0xFF075E9C).withValues(alpha: 0.4),
+                                const Color(0xFF1E5BB0).withValues(alpha: 0.4),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -372,17 +374,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                         ),
                       ),
-                      const SizedBox(height: 28),
-
-                      // Logo App polos di bawah tombol sign in
-                      Center(
-                        child: Image.asset(
-                          'assets/icon/logoapp.jpg',
-                          height: 48,
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+                     
                     ],
                   ),
                 ),
