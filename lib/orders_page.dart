@@ -204,22 +204,30 @@ class _OrdersTabState extends State<OrdersTab> {
     }
 
     try {
-      String url =
-          'http://172.19.10.208/food_order_api/get_orders.php?tenant_id=$tenantId&order_status_id=$selectedStatus';
+      String query = '';
+      if (selectedStatus == 2) {
+        query = 'tenant_id=$tenantId&status=$selectedStatus&filter_type=all';
+      } else if (selectedStatus == 3) {
+        query = 'tenant_id=$tenantId&status=$selectedStatus&filter_type=$selectedFilterType';
 
-      if (selectedStatus == 3) {
-        if (selectedFilterType == 'year') {
-          url += '&year=${yearController.text}';
-        } else if (selectedFilterType == 'month') {
-          url += '&year=${yearController.text}&month=${monthController.text}';
-        } else if (selectedFilterType == 'day') {
-          url += '&day=${dayController.text}';
-        } else if (selectedFilterType == 'custom') {
-          url +=
-          '&from=${startDateController.text}&to=${endDateController.text}';
+        switch (selectedFilterType) {
+          case 'year':
+            query += '&year=${yearController.text}';
+            break;
+          case 'month':
+            query += '&year=${yearController.text}&month=${monthController.text}';
+            break;
+          case 'day':
+            query += '&date=${dayController.text}';
+            break;
+          case 'custom':
+            query += '&start_date=${startDateController.text}&end_date=${endDateController.text}';
+            break;
         }
       }
 
+      final url = 'http://172.19.10.208/food_order_api/get_orders.php?$query';
+      print("[fetchOrders] Requesting: $url");
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
@@ -1126,6 +1134,73 @@ class _OrdersTabState extends State<OrdersTab> {
                 ],
               ),
             ),
+            if (selectedStatus == 3) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 20, right: 20, top: 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E5BB0).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF1E5BB0).withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.calendar_today_rounded,
+                        size: 15,
+                        color: Color(0xFF1E5BB0),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          selectedFilterType == 'month'
+                              ? "Filter: Bulan ${getMonthName(selectedFilterMonth)} $selectedMonthYear"
+                              : selectedFilterType == 'day'
+                                  ? "Filter: ${DateFormat('dd MMMM yyyy').format(selectedFilterDate)}"
+                                  : selectedFilterType == 'year'
+                                      ? "Filter: Tahun $selectedFilterYear"
+                                      : selectedFilterType == 'custom' && selectedFromDate != null && selectedToDate != null
+                                          ? "Filter: ${DateFormat('dd/MM/yy').format(selectedFromDate!)} - ${DateFormat('dd/MM/yy').format(selectedToDate!)}"
+                                          : "Filter: Semua Riwayat (All)",
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1E5BB0),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (selectedFilterType != 'all')
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              selectedFilterType = 'all';
+                              selectedFromDate = null;
+                              selectedToDate = null;
+                            });
+                            fetchOrders();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E5BB0).withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.close_rounded,
+                              size: 14,
+                              color: Color(0xFF1E5BB0),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
 
             // Order List Section
@@ -1681,16 +1756,16 @@ class OrderDetailPage extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
+                              color: const Color(0xFFFEF9C3), // Soft yellow background
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.grey.shade300),
+                              border: Border.all(color: const Color(0xFFFACC15)), // Yellow border
                             ),
                             child: Text(
                               patientRole,
                               style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.black,
+                                color: Color(0xFFB45309), // Amber / warm golden yellow text for readable contrast
                               ),
                             ),
                           ),
@@ -1732,37 +1807,71 @@ class OrderDetailPage extends StatelessWidget {
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: Colors.grey.shade200),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
+                            // 1. Quantity di depan kiri
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               decoration: BoxDecoration(
                                 color: const Color(0xFF1E5BB0).withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: const Color(0xFF1E5BB0).withValues(alpha: 0.25),
+                                  width: 1.2,
+                                ),
                               ),
                               child: Text(
                                 "${item['quantity']}x",
                                 style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
                                   color: Color(0xFF1E5BB0),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 12),
+
+                            // 2. Gambar / Placeholder Makanan
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade200),
+                              ),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.restaurant_rounded,
+                                  color: Color(0xFF1E5BB0),
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+
+                            // 3. Nama Barang & bawahnya Harga
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
                                     item['food_name'] ?? '',
@@ -1772,24 +1881,16 @@ class OrderDetailPage extends StatelessWidget {
                                       color: Colors.black,
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
+                                  const SizedBox(height: 4),
                                   Text(
-                                    "Rp ${NumberFormat('#,###', 'id_ID').format(basePrice)}",
+                                    "Rp ${NumberFormat('#,###', 'id_ID').format(subtotal)}",
                                     style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                      color: Color(0xFF64748B),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1E5BB0),
                                     ),
                                   ),
                                 ],
-                              ),
-                            ),
-                            Text(
-                              "Rp ${NumberFormat('#,###', 'id_ID').format(subtotal)}",
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
                               ),
                             ),
                           ],
@@ -1906,9 +2007,10 @@ class OrderDetailPage extends StatelessWidget {
                     children: [
                       // Reject Button
                       Expanded(
+                        flex: 1,
                         child: SizedBox(
                           height: 48,
-                          child: OutlinedButton.icon(
+                          child: OutlinedButton(
                             onPressed: () {
                               String rejectReason = "";
                               showDialog(
@@ -1981,50 +2083,66 @@ class OrderDetailPage extends StatelessWidget {
                                 },
                               );
                             },
-                            icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFFE11D48)),
-                            label: const Text(
-                              "Reject",
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFE11D48),
-                              ),
-                            ),
                             style: OutlinedButton.styleFrom(
                               side: BorderSide(color: const Color(0xFFE11D48).withValues(alpha: 0.5)),
                               backgroundColor: const Color(0xFFE11D48).withValues(alpha: 0.06),
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
                               ),
                             ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.close_rounded, size: 18, color: Color(0xFFE11D48)),
+                                SizedBox(width: 4),
+                                Text(
+                                  "Reject",
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFE11D48),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
 
                       // Complete Order Button
                       Expanded(
                         flex: 2,
                         child: SizedBox(
                           height: 48,
-                          child: ElevatedButton.icon(
+                          child: ElevatedButton(
                             onPressed: () => completeOrder(context),
-                            icon: const Icon(Icons.check_rounded, size: 18, color: Colors.white),
-                            label: const Text(
-                              "Complete Order",
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF16A34A),
                               foregroundColor: Colors.white,
                               elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
                               ),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.check_rounded, size: 18, color: Colors.white),
+                                SizedBox(width: 6),
+                                Text(
+                                  "Complete Order",
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -2106,9 +2224,14 @@ class OrderDetailPage extends StatelessWidget {
       final responseBody = jsonDecode(response.body);
       if (responseBody is List) {
         return responseBody;
-      } else {
-        throw Exception('Expected List but got something else');
+      } else if (responseBody is Map<String, dynamic>) {
+        if (responseBody['data'] is List) {
+          return responseBody['data'];
+        } else if (responseBody['order_details'] is List) {
+          return responseBody['order_details'];
+        }
       }
+      throw Exception('Expected List but got ${responseBody.runtimeType}');
     } else {
       throw Exception('Failed to load order details');
     }
