@@ -18,17 +18,25 @@ class _FoodsPageState extends State<FoodsPage> {
   List foods = [];
   bool isLoading = true;
   int? selectedCategoryId;
+  String searchQuery = '';
+  final TextEditingController searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    selectedCategoryId = -1; // Pastikan kategori "All" dipilih pertama kali
+    selectedCategoryId = -1; // Default kategori "All"
     fetchCategories().then((_) {
       setState(() {
-        selectedCategoryId = -1; // Jangan set ke kategori tertentu, biarkan All
+        selectedCategoryId = -1;
       });
-      fetchAllFoods(); // Pastikan semua makanan dimuat pertama kali
+      fetchAllFoods();
     });
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
   }
 
   Future<void> fetchCategories() async {
@@ -41,12 +49,12 @@ class _FoodsPageState extends State<FoodsPage> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        print("Categories Response: $data"); // Debugging
-        setState(() {
-          categories = data['categories'] ?? [];
-          // Jangan set selectedCategoryId ke kategori pertama
-          isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            categories = data['categories'] ?? [];
+            isLoading = false;
+          });
+        }
       } else {
         throw Exception("Failed to load categories");
       }
@@ -68,22 +76,23 @@ class _FoodsPageState extends State<FoodsPage> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        print("Foods Response: $data"); // Debugging
-
         if (mounted) {
           setState(() {
             foods = data['foods'] ?? [];
+            isLoading = false;
           });
         }
       } else {
         throw Exception("Failed to load foods");
       }
     } catch (e) {
+      if (mounted) setState(() => isLoading = false);
       print("Error fetching foods: $e");
     }
   }
 
   Future<void> fetchFoods(int categoryId) async {
+    setState(() => isLoading = true);
     try {
       final response = await http.get(
         Uri.parse(
@@ -93,22 +102,23 @@ class _FoodsPageState extends State<FoodsPage> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        print("Foods Response: $data"); // Debugging
         if (mounted) {
           setState(() {
             foods = data['foods'] ?? [];
+            isLoading = false;
           });
         }
       } else {
         throw Exception("Failed to load foods");
       }
     } catch (e) {
+      if (mounted) setState(() => isLoading = false);
       print("Error fetching foods: $e");
     }
   }
 
   String formatPrice(double price) {
-    final formatter = NumberFormat('#,###.##', 'en_US');
+    final formatter = NumberFormat('#,###', 'id_ID');
     return formatter.format(price);
   }
 
@@ -118,30 +128,43 @@ class _FoodsPageState extends State<FoodsPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text("Add Food Category"),
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text(
+            "Add Food Category",
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+          ),
           content: TextField(
             controller: categoryController,
-            decoration: InputDecoration(hintText: "Enter category name"),
-          ),
-          actions: [ 
-           TextButton(
-  onPressed: () => Navigator.pop(context),
-  style: TextButton.styleFrom(
-    foregroundColor: Colors.black // Teks jadi biru
-  ),
-  child: Text("Cancel"),
-),
-             ElevatedButton(
-            onPressed: () async {
-              await addCategory(categoryController.text);
-              setState(() {}); // Update UI setelah kategori ditambahkan
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue, // Warna background tombol Save
-              foregroundColor: Colors.white, // Warna teks tombol Save
+            style: const TextStyle(color: Colors.black),
+            decoration: InputDecoration(
+              hintText: "Enter category name",
+              hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF1E5BB0), width: 1.5),
+              ),
             ),
-            child: Text("Save"),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel", style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await addCategory(categoryController.text);
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E5BB0),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text("Save"),
             ),
           ],
         );
@@ -150,10 +173,7 @@ class _FoodsPageState extends State<FoodsPage> {
   }
 
   Future<void> addCategory(String categoryName) async {
-    if (categoryName.isEmpty) {
-      print("Category name cannot be empty");
-      return;
-    }
+    if (categoryName.isEmpty) return;
 
     try {
       final response = await http.post(
@@ -166,10 +186,8 @@ class _FoodsPageState extends State<FoodsPage> {
       );
 
       final responseData = jsonDecode(response.body);
-      print("Add Category Response: $responseData"); // Debugging
-
       if (response.statusCode == 200 && responseData['success'] == true) {
-        fetchCategories(); // Perbarui kategori setelah sukses
+        fetchCategories();
       } else {
         print("Failed to add category: ${responseData['message']}");
       }
@@ -186,15 +204,12 @@ class _FoodsPageState extends State<FoodsPage> {
         body: jsonEncode({
           'food_id': foodId,
           'tenant_id': widget.tenantId,
-          'increment': 1, // Tambah stok 1
+          'increment': 1,
         }),
       );
 
       final responseData = jsonDecode(response.body);
-      print("Increase Stock Response: $responseData"); // Debugging
-
       if (response.statusCode == 200 && responseData['success'] == true) {
-        // Ambil kembali data terbaru setelah stok bertambah
         if (selectedCategoryId == -1) {
           fetchAllFoods();
         } else {
@@ -219,8 +234,6 @@ class _FoodsPageState extends State<FoodsPage> {
       );
 
       final data = jsonDecode(response.body);
-      print("Decrease Stock Response: $data"); // Debugging
-
       if (data['success']) {
         if (selectedCategoryId == -1) {
           fetchAllFoods();
@@ -228,9 +241,11 @@ class _FoodsPageState extends State<FoodsPage> {
           fetchFoods(selectedCategoryId!);
         }
       } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(data['message'])));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['message'] ?? 'Failed to decrease stock')),
+          );
+        }
       }
     } catch (e) {
       print("Error decreasing stock: $e");
@@ -239,405 +254,614 @@ class _FoodsPageState extends State<FoodsPage> {
 
   @override
   Widget build(BuildContext context) {
-  return Scaffold(
-    body: SafeArea(
-      child: isLoading
-          ? Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                // Custom Header
-                Container(
-                  color: Color(0xFF075E9C),
-                  padding: EdgeInsets.all(16),
-                  alignment: Alignment.centerLeft,
-                  width: double.infinity,
-                  child: Text(
-                    'Foods',
-                    style: TextStyle(
-                      fontSize: 22,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
+    final filteredFoods = foods.where((item) {
+      if (searchQuery.isEmpty) return true;
+      final name = (item['food_name'] ?? '').toString().toLowerCase();
+      final desc = (item['food_description'] ?? '').toString().toLowerCase();
+      final q = searchQuery.toLowerCase();
+      return name.contains(q) || desc.contains(q);
+    }).toList();
+
+    final activeCount = foods.where((item) {
+      final stock = int.tryParse(item['food_stock'].toString()) ?? 0;
+      return stock > 0;
+    }).length;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Top App Bar dengan Logo & Icon Notifikasi (Konsisten dengan Orders)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Image.asset(
+                    'assets/icon/logoapp.png',
+                    height: 38,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => const Text(
+                      "CIPUTRA HOSPITAL",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                        letterSpacing: 1.2,
+                      ),
                     ),
                   ),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: const Icon(
+                      Icons.notifications_outlined,
+                      color: Colors.black87,
+                      size: 22,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Date & Title Header + Add Item Button
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    DateFormat('EEEE, d MMMM yyyy').format(DateTime.now()).toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF64748B),
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Text(
+                        'Menu',
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
+                          letterSpacing: -0.8,
+                        ),
+                      ),
+                      // Add Item Button (Warna Biru Primary)
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => AddFoodPage(
+                                tenantId: widget.tenantId,
+                              ),
+                            ),
+                          ).then((value) {
+                            if (selectedCategoryId == -1) {
+                              fetchAllFoods();
+                            } else if (selectedCategoryId != null) {
+                              fetchFoods(selectedCategoryId!);
+                            }
+                          });
+                        },
+                        icon: const Icon(Icons.add_rounded, size: 18, color: Colors.white),
+                        label: const Text(
+                          "Add Item",
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1E5BB0),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Search Bar & Filter Action
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.grey.shade300),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
-  SizedBox(height: 10),
+                child: TextField(
+                  controller: searchController,
+                  onChanged: (val) {
+                    setState(() {
+                      searchQuery = val;
+                    });
+                  },
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.black,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: "Search menu items...",
+                    hintStyle: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF94A3B8),
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      size: 20,
+                      color: Color(0xFF64748B),
+                    ),
+                    suffixIcon: searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18, color: Color(0xFF64748B)),
+                            onPressed: () {
+                              searchController.clear();
+                              setState(() {
+                                searchQuery = '';
+                              });
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 13),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
 
-                // Sisanya dibungkus Expanded agar scrollable
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Column(
-                      children: [
-              categories.isEmpty
-                  ? ElevatedButton(
-                      onPressed: showAddCategoryDialog,
-                       style: ElevatedButton.styleFrom(
-    backgroundColor: Colors.blue, 
-    foregroundColor: Colors.white, 
-  ),
-                      child: Text("Add Food Category"),
+            // Status Indicator Info (misal: "X Items Total • Y Active")
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF16A34A),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    "${foods.length} Items Total",
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Categories Horizontal Pill Tabs (Warna Biru Primary & Putih)
+            SizedBox(
+              height: 38,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                children: [
+                  // Tab All Items
+                  _buildCategoryPill(
+                    label: "All Items",
+                    isSelected: selectedCategoryId == -1,
+                    onTap: () {
+                      setState(() {
+                        selectedCategoryId = -1;
+                      });
+                      fetchAllFoods();
+                    },
+                  ),
+                  // Kategori dari database
+                  ...categories.map(
+                    (cat) => Padding(
+                      padding: const EdgeInsets.only(left: 8.0),
+                      child: _buildCategoryPill(
+                        label: cat['food_category_name'] ?? '',
+                        isSelected: selectedCategoryId == cat['food_category_id'],
+                        onTap: () {
+                          setState(() {
+                            selectedCategoryId = cat['food_category_id'];
+                          });
+                          fetchFoods(selectedCategoryId!);
+                        },
+                      ),
+                    ),
+                  ),
+                  // Tombol Tambah Kategori
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8.0),
+                    child: GestureDetector(
+                      onTap: showAddCategoryDialog,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.add, size: 16, color: Color(0xFF1E5BB0)),
+                            SizedBox(width: 2),
+                            Text(
+                              "Add Category",
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1E5BB0),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Menu List Items
+            Expanded(
+              child: isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Color(0xFF1E5BB0)),
                     )
-                  : Column(
-                      children: [
-                        // Kategori Tabs
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.start,
+                  : filteredFoods.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              // Tombol "All"
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                                child: TextButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      selectedCategoryId = -1;
-                                    });
-                                    fetchAllFoods();
-                                  },
-                                  style: ButtonStyle(
-                                    backgroundColor: MaterialStateProperty.all(
-                                        selectedCategoryId == -1 ? Colors.blue : Colors.grey[200]),
-                                    foregroundColor: MaterialStateProperty.all(
-                                        selectedCategoryId == -1 ? Colors.white : Colors.black),
-                                  ),
-                                  child: Text("All"),
-                                ),
+                              Icon(
+                                Icons.restaurant_menu_rounded,
+                                size: 56,
+                                color: Colors.grey.shade300,
                               ),
-
-                              // Kategori dari database
-                              ...categories.map(
-                                (cat) => Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                                  child: TextButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        selectedCategoryId = cat['food_category_id'];
-                                      });
-                                      fetchFoods(selectedCategoryId!);
-                                    },
-                                    style: ButtonStyle(
-                                      backgroundColor: MaterialStateProperty.all(
-                                          selectedCategoryId == cat['food_category_id']
-                                              ? Colors.blue
-                                              : Colors.grey[200]),
-                                      foregroundColor: MaterialStateProperty.all(
-                                          selectedCategoryId == cat['food_category_id']
-                                              ? Colors.white
-                                              : Colors.black),
-                                    ),
-                                    child: Text(cat['food_category_name']),
-                                  ),
+                              const SizedBox(height: 12),
+                              Text(
+                                "No menu items found.",
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade500,
                                 ),
-                              ),
-
-                              // Tombol Tambah Kategori
-                              IconButton(
-                                icon: Icon(Icons.add),
-                                onPressed: showAddCategoryDialog,
                               ),
                             ],
                           ),
-                        ),
+                        )
+                      : ListView.builder(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                          itemCount: filteredFoods.length,
+                          itemBuilder: (context, index) {
+                            final food = filteredFoods[index];
+                            final double foodPrice =
+                                double.tryParse(food['food_price'].toString()) ?? 0.0;
+                            final int foodStock =
+                                int.tryParse(food['food_stock'].toString()) ?? 0;
+                            final bool isAvailable = foodStock > 0;
+                            final String foodImageUrl = food['food_image'] ?? '';
+                            final String fullImageUrl = foodImageUrl.isNotEmpty
+                                ? "http://172.19.10.208/cihosFoodOrder/public/storage/$foodImageUrl"
+                                : '';
+                            final String categoryName = food['food_category_name'] ?? 'Menu';
 
-                        SizedBox(height: 10),
-
-                        // Tombol Add New Menu
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => AddFoodPage(
-                                    tenantId: widget.tenantId,
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 14),
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.grey.shade200),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 14,
+                                    offset: const Offset(0, 4),
                                   ),
-                                ),
-                              ).then((value) {
-                                if (selectedCategoryId == -1) {
-                                  fetchAllFoods().then((_) => setState(() {}));
-                                } else if (selectedCategoryId != null) {
-                                  fetchFoods(selectedCategoryId!).then((_) => setState(() {}));
-                                }
-                              });
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              padding: EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            child: Text(
-                              "Add New Menu",
-                              style: TextStyle(fontSize: 16, color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-            
-SizedBox(height: 10),
-                    Expanded(
-                      child:
-                          foods.isEmpty
-                              ? Center(child: Text("There is no food."))
-                              : ListView.builder(
-                                 padding: EdgeInsets.zero, 
-                                itemCount: foods.length,
-                                itemBuilder: (context, index) {
-                                  double foodPrice =
-                                      double.tryParse(
-                                        foods[index]['food_price'].toString(),
-                                      ) ??
-                                      0.0;
-                                  int foodStock =
-                                      int.tryParse(
-                                        foods[index]['food_stock'].toString(),
-                                      ) ??
-                                      0;
-                                  String baseUrl =
-                                      "http://172.19.10.208/cihosFoodOrder/public/storage/";
-                                  String foodImageUrl =
-                                      foods[index]['food_image'] ?? '';
-                                  String fullImageUrl = foodImageUrl;
-
-                                  return Card(
-                                     color: Colors.white,
-                                    margin: EdgeInsets.symmetric(
-                                      vertical: 8,
-                                      horizontal: 2, 
-                                    ),
-                                    elevation: 2,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(10),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
-                                        children: [
-                                          // Gambar makanan
-                                          Container(
-                                            width: 60,
-                                            height: 60,
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              color:
-                                                  Colors
-                                                      .grey[300], // Placeholder jika gambar tidak ada
-                                              image:
-                                                  foodImageUrl.isNotEmpty
-                                                      ? DecorationImage(
-                                                        image: NetworkImage(
-                                                          fullImageUrl,
-                                                        ),
-                                                        fit: BoxFit.cover,
-                                                      )
-                                                      : null,
-                                            ),
-                                          ),
-                                          SizedBox(width: 12),
-
-                                          // Informasi makanan
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  foods[index]['food_name'],
-                                                  style: TextStyle(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Baris Atas: Image Thumbnail + Nama + Harga + Kategori Tag
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Image / Placeholder Makanan
+                                      Container(
+                                        width: 68,
+                                        height: 68,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(16),
+                                          color: const Color(0xFFFEF9C3).withValues(alpha: 0.6),
+                                          border: Border.all(color: Colors.grey.shade200),
+                                          image: fullImageUrl.isNotEmpty
+                                              ? DecorationImage(
+                                                  image: NetworkImage(fullImageUrl),
+                                                  fit: BoxFit.cover,
+                                                )
+                                              : null,
+                                        ),
+                                        child: fullImageUrl.isEmpty
+                                            ? const Center(
+                                                child: Icon(
+                                                  Icons.restaurant_rounded,
+                                                  color: Color(0xFF1E5BB0),
+                                                  size: 28,
                                                 ),
-                                                SizedBox(height: 4),
-                                                Text(
-                                                  "Rp ${formatPrice(foodPrice)}",
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    color: Colors.grey[700],
-                                                  ),
-                                                ),
-                                                SizedBox(height: 6),
-                                                ElevatedButton(
-                                                  onPressed: () async {
-                                                    final categoryId =
-                                                        foods[index]['food_category_id'];
-                                                    if (categoryId != null) {
-                                                      // Cek apakah categoryId ada
-                                                      final result = await Navigator.push(
-                                                        context,
-                                                        MaterialPageRoute(
-                                                          builder:
-                                                              (
-                                                                context,
-                                                              ) => EditFoodPage(
-                                                                foodName:
-                                                                    foods[index]['food_name'],
-                                                                foodPrice:
-                                                                    foods[index]['food_price']
-                                                                        .toString(),
-                                                                foodStock:
-                                                                    foods[index]['food_stock']
-                                                                        .toString(),
-                                                                foodImage:
-                                                                    foods[index]['food_image'],
-                                                                foodDescription:
-                                                                    foods[index]['food_description'],
-                                                                tenantId:
-                                                                    widget
-                                                                        .tenantId,
-                                                                foodCategoryId:
-                                                                    categoryId, // Pindah ke kategori yang benar
-                                                                foodId:
-                                                                    foods[index]['food_id'], // Pastikan food_id dikirim
-                                                              ),
-                                                        ),
-                                                      );
-                                                      if (result == true) {
-                                                        await Future.delayed(
-                                                          Duration(
-                                                            milliseconds: 300,
-                                                          ),
-                                                        );
-                                                        if (selectedCategoryId ==
-                                                            -1) {
-                                                          fetchAllFoods();
-                                                        } else {
-                                                          fetchFoods(
-                                                            selectedCategoryId!,
-                                                          );
-                                                        }
-                                                      }
-                                                    } else {
-                                                      // Handle case where categoryId is null
-                                                      ScaffoldMessenger.of(
-                                                        context,
-                                                      ).showSnackBar(
-                                                        SnackBar(
-                                                          content: Text(
-                                                            "Category ID is missing for this food item.",
-                                                          ),
-                                                        ),
-                                                      );
-                                                    }
+                                              )
+                                            : null,
+                                      ),
+                                      const SizedBox(width: 14),
 
-                                                    // final result = await Navigator.push(
-                                                    //   context,
-                                                    //   MaterialPageRoute(
-                                                    //     builder: (context) => EditFoodPage
-                                                    //     (
-                                                    //       foodName: foods[index]['food_name'],
-                                                    //       foodPrice: foods[index]['food_price'].toString(),
-                                                    //       foodStock: foods[index]['food_stock'].toString(),
-                                                    //       foodImage: foods[index]['food_image'],
-                                                    //       foodDescription: foods[index]['food_description'],
-                                                    //       tenantId: widget.tenantId,
-                                                    //       // foodCategoryId: selectedCategoryId!,
-                                                    //       foodCategoryId: categoryId!,
-                                                    //       foodId: foods[index]['food_id'], // Pastikan food_id dikirim
-                                                    //     ),
-
-                                                    //   ),
-                                                    // );
-
-                                                    // // Jika hasilnya true, refresh daftar makanan
-                                                    // if (result == true) {
-                                                    //   if (selectedCategoryId == -1) {
-                                                    //     fetchAllFoods();
-                                                    //   } else {
-                                                    //     fetchFoods(selectedCategoryId!);
-                                                    //   }
-                                                    // }
-                                                  },
-                                                  style:
-                                                      ElevatedButton.styleFrom(
-                                                        padding:
-                                                            EdgeInsets.symmetric(
-                                                              horizontal: 12,
-                                                              vertical: 4,
-                                                            ),
-                                                        backgroundColor:
-                                                            Colors.blue,
-                                                      ),
-                                                  child: Text(
-                                                    "Edit",
-                                                    style: TextStyle(
-                                                      fontSize: 14,
-                                                      color: Colors.white,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-
-                                          // Bagian stock dan tombol tambah
-                                          Column(
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  IconButton(
-                                                    icon: Icon(
-                                                      Icons
-                                                          .remove_circle_outline,
-                                                      color: Colors.grey,
-                                                    ),
-                                                    onPressed:
-                                                        foodStock > 0
-                                                            ? () => decreaseStock(
-                                                              foods[index]['food_id'],
-                                                            )
-                                                            : null,
-                                                  ),
-                                                  Text(
-                                                    "$foodStock",
-                                                    style: TextStyle(
-                                                      fontSize: 16,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
-                                                  ),
-
-                                                  IconButton(
-                                                    icon: Icon(
-                                                      Icons.add_circle_outline,
-                                                      color: Colors.blue,
-                                                    ),
-                                                    onPressed: () {
-                                                      // Tambahkan stock di sini
-                                                      increaseStock(
-                                                        foods[index]['food_id'],
-                                                      );
-                                                    },
-                                                  ),
-                                                ],
+                                      // Detail Nama, Harga, Tag
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              food['food_name'] ?? '',
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black,
+                                                letterSpacing: -0.3,
                                               ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              "Rp ${formatPrice(foodPrice)}",
+                                              style: const TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w800,
+                                                color: Color(0xFF1E5BB0),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Divider(height: 1, color: Colors.grey.shade100),
+                                  const SizedBox(height: 10),
+
+                                  // Baris Bawah: Status Switch / Stock Control + Action Buttons (Edit, Stock)
+                                  Row(
+                                    children: [
+                                      // Status Pill (Available / Sold Out)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: isAvailable
+                                              ? const Color(0xFF16A34A).withValues(alpha: 0.1)
+                                              : const Color(0xFFE11D48).withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              width: 7,
+                                              height: 7,
+                                              decoration: BoxDecoration(
+                                                color: isAvailable
+                                                    ? const Color(0xFF16A34A)
+                                                    : const Color(0xFFE11D48),
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              isAvailable ? "Available" : "Sold Out",
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: isAvailable
+                                                    ? const Color(0xFF16A34A)
+                                                    : const Color(0xFFE11D48),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Spacer(),
+
+                                      // Stock Control (+ -)
+                                      Container(
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF8FAFC),
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(color: Colors.grey.shade300),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                              icon: const Icon(
+                                                Icons.remove_rounded,
+                                                size: 16,
+                                                color: Colors.black87,
+                                              ),
+                                              onPressed: foodStock > 0
+                                                  ? () => decreaseStock(food['food_id'])
+                                                  : null,
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6),
+                                              child: Text(
+                                                "$foodStock",
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Colors.black,
+                                                ),
+                                              ),
+                                            ),
+                                            IconButton(
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                              icon: const Icon(
+                                                Icons.add_rounded,
+                                                size: 16,
+                                                color: Color(0xFF1E5BB0),
+                                              ),
+                                              onPressed: () => increaseStock(food['food_id']),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+
+                                      // Edit Button
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(8),
+                                        onTap: () async {
+                                          final categoryId = food['food_category_id'];
+                                          if (categoryId != null) {
+                                            final result = await Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => EditFoodPage(
+                                                  foodName: food['food_name'],
+                                                  foodPrice: food['food_price'].toString(),
+                                                  foodStock: food['food_stock'].toString(),
+                                                  foodImage: food['food_image'],
+                                                  foodDescription: food['food_description'],
+                                                  tenantId: widget.tenantId,
+                                                  foodCategoryId: categoryId,
+                                                  foodId: food['food_id'],
+                                                ),
+                                              ),
+                                            );
+                                            if (result == true) {
+                                              await Future.delayed(const Duration(milliseconds: 300));
+                                              if (selectedCategoryId == -1) {
+                                                fetchAllFoods();
+                                              } else {
+                                                fetchFoods(selectedCategoryId!);
+                                              }
+                                            }
+                                          }
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF1F5F9),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Colors.grey.shade300),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.edit_outlined, size: 14, color: Colors.black87),
+                                              SizedBox(width: 4),
                                               Text(
-                                                "Stock",
+                                                "Edit",
                                                 style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Colors.grey[600],
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.black87,
                                                 ),
                                               ),
                                             ],
                                           ),
-                                        ],
+                                        ),
                                       ),
-                                    ),
-                                  );
-                                },
+                                    ],
+                                  ),
+                                ],
                               ),
-                    ),
-                  ],
-                ),
-      ),
-    ),
-               ],
+                            );
+                          },
+                        ),
             ),
-    ),
-  );
-}
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryPill({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF1E5BB0) : Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF1E5BB0) : Colors.grey.shade300,
+            width: 1.2,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF1E5BB0).withValues(alpha: 0.28),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : [],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+            color: isSelected ? Colors.white : Colors.black,
+          ),
+        ),
+      ),
+    );
+  }
 }
