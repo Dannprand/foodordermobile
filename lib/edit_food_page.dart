@@ -1,10 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:path/path.dart' as path;
 import 'package:http_parser/http_parser.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:path/path.dart' as path;
 
 class EditFoodPage extends StatefulWidget {
   final int tenantId;
@@ -14,7 +16,7 @@ class EditFoodPage extends StatefulWidget {
   final String foodStock;
   final String foodDescription;
   final int foodCategoryId;
-  final String? foodImage; // Tambahkan field untuk gambar makanan
+  final String? foodImage;
 
   const EditFoodPage({
     Key? key,
@@ -25,7 +27,7 @@ class EditFoodPage extends StatefulWidget {
     required this.foodStock,
     required this.foodDescription,
     required this.foodCategoryId,
-    this.foodImage, // Tambahkan field gambar
+    this.foodImage,
   }) : super(key: key);
 
   @override
@@ -34,47 +36,103 @@ class EditFoodPage extends StatefulWidget {
 
 class _EditFoodPageState extends State<EditFoodPage> {
   final _formKey = GlobalKey<FormState>();
-  TextEditingController nameController = TextEditingController();
-  TextEditingController priceController = TextEditingController();
-  TextEditingController stockController = TextEditingController();
-  TextEditingController descriptionController = TextEditingController();
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController priceController = TextEditingController();
+  final TextEditingController stockController = TextEditingController();
+  final TextEditingController descriptionController = TextEditingController();
+  final TextEditingController variationTypeController = TextEditingController();
+
   List categories = [];
   int? selectedCategoryId;
-  bool isLoading = true; // Tambahkan indikator loading
+  bool isLoading = true;
+  bool isSubmitting = false;
   String errorMessage = '';
   File? _imageFile;
-   List<Map<String, dynamic>> variations = [];
-   List<Map<String, dynamic>> variationTypes = [];
- int? selectedVariationTypeId;
-TextEditingController variationTypeController = TextEditingController();
+
+  List<Map<String, dynamic>> variations = [];
+  List<Map<String, dynamic>> variationTypes = [];
+  int? selectedVariationTypeId;
 
   @override
   void initState() {
     super.initState();
     nameController.text = widget.foodName;
-    priceController.text = widget.foodPrice;
+
+    if (widget.foodPrice.isNotEmpty) {
+      int parsed = int.tryParse(widget.foodPrice.replaceAll(',', '').replaceAll('.', '')) ?? 0;
+      priceController.text = parsed > 0 ? NumberFormat("#,###", "en_US").format(parsed) : widget.foodPrice;
+    } else {
+      priceController.text = '';
+    }
+
     stockController.text = widget.foodStock;
     descriptionController.text = widget.foodDescription;
     selectedCategoryId = widget.foodCategoryId != -1 ? widget.foodCategoryId : null;
-  
-  print("Selected Category ID after init: $selectedCategoryId");
 
-    
     fetchCategories();
     fetchVariations();
     fetchVariationTypes();
   }
 
-Future<void> fetchVariationTypes() async {
-  final response = await http.get(Uri.parse('http://172.19.10.208/food_order_api/get_variation_types_edit.php?tenant_id=${widget.tenantId}'));
-  if (response.statusCode == 200) {
-    final data = jsonDecode(response.body);
-    setState(() {
-      variationTypes = List<Map<String, dynamic>>.from(data['types']);
-    });
+  @override
+  void dispose() {
+    nameController.dispose();
+    priceController.dispose();
+    stockController.dispose();
+    descriptionController.dispose();
+    variationTypeController.dispose();
+    super.dispose();
   }
-}
 
+  void formatCurrency(String value) {
+    String cleanValue = value.replaceAll(',', '').replaceAll('.', '');
+    if (cleanValue.isNotEmpty) {
+      int parsed = int.tryParse(cleanValue) ?? 0;
+      String formatted = NumberFormat("#,###", "en_US").format(parsed);
+      setState(() {
+        priceController.text = formatted;
+        priceController.selection = TextSelection.fromPosition(
+          TextPosition(offset: formatted.length),
+        );
+      });
+    } else {
+      setState(() {
+        priceController.clear();
+      });
+    }
+  }
+
+  void formatVariationCurrency(int index, String value) {
+    String cleanValue = value.replaceAll(',', '').replaceAll('.', '');
+    if (cleanValue.isNotEmpty) {
+      int parsed = int.tryParse(cleanValue) ?? 0;
+      String formatted = NumberFormat("#,###", "en_US").format(parsed);
+      setState(() {
+        variations[index]['price'] = formatted;
+        variations[index]['food_variation_price'] = formatted;
+      });
+    } else {
+      setState(() {
+        variations[index]['price'] = '';
+        variations[index]['food_variation_price'] = '';
+      });
+    }
+  }
+
+  Future<void> fetchVariationTypes() async {
+    try {
+      final response = await http.get(Uri.parse(
+          'http://172.19.10.208/food_order_api/get_variation_types_edit.php?tenant_id=${widget.tenantId}'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          variationTypes = List<Map<String, dynamic>>.from(data['types'] ?? []);
+        });
+      }
+    } catch (e) {
+      print("Error fetching variation types: $e");
+    }
+  }
 
   Future<void> fetchCategories() async {
     try {
@@ -87,15 +145,8 @@ Future<void> fetchVariationTypes() async {
           categories = data['categories'] ?? [];
           isLoading = false;
 
-          // Cek apakah kategori yang dipilih masih ada di daftar
           if (!categories.any((c) => c['food_category_id'] == selectedCategoryId)) {
-            selectedCategoryId = null; // Set ke null jika tidak ada
-            print("Kategori yang ada: ${categories.map((c) => c['food_category_id'])}");
-          print("Kategori makanan ini: $selectedCategoryId");
-          print("Categories loaded: $categories");
-print("Selected Category ID from widget: ${widget.foodCategoryId}");
-
-
+            selectedCategoryId = null;
           }
         });
       } else {
@@ -109,41 +160,27 @@ print("Selected Category ID from widget: ${widget.foodCategoryId}");
     }
   }
 
-Future<void> fetchVariations() async {
-  try {
-    final response = await http.get(
-      Uri.parse('http://172.19.10.208/food_order_api/get_food_variations.php?food_id=${widget.foodId}'),
-    );
+  Future<void> fetchVariations() async {
+    try {
+      final response = await http.get(
+        Uri.parse('http://172.19.10.208/food_order_api/get_food_variations.php?food_id=${widget.foodId}'),
+      );
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-
-      // Pastikan struktur JSON-nya ada key 'variations'
-      if (data is Map && data.containsKey('variations')) {
-        setState(() {
-          variations = List<Map<String, dynamic>>.from(data['variations']);
-        });
-      } else {
-        setState(() {
-          errorMessage = 'Data variasi tidak ditemukan di response.';
-        });
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is Map && data.containsKey('variations')) {
+          setState(() {
+            variations = List<Map<String, dynamic>>.from(data['variations']);
+          });
+        }
       }
-    } else {
-      setState(() {
-        errorMessage = 'Gagal memuat variasi makanan';
-      });
+    } catch (e) {
+      print("Error fetching variations: $e");
     }
-  } catch (e) {
-    setState(() {
-      errorMessage = 'Terjadi kesalahan saat mengambil variasi: $e';
-    });
   }
-}
-
 
   Future<void> pickImage() async {
-    final pickedFile =
-        await ImagePicker().pickImage(source: ImageSource.gallery);
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (pickedFile != null) {
       setState(() {
         _imageFile = File(pickedFile.path);
@@ -151,9 +188,16 @@ Future<void> fetchVariations() async {
     }
   }
 
-void _addVariationField() {
+  void _addVariationField() {
     setState(() {
-      variations.add({"name": "", "price": "", "stock": ""});
+      variations.add({
+        "name": "",
+        "price": "",
+        "stock": "",
+        "food_variation_type_id": variationTypes.isNotEmpty
+            ? int.tryParse(variationTypes.first['food_variation_type_id'].toString())
+            : null,
+      });
     });
   }
 
@@ -163,66 +207,96 @@ void _addVariationField() {
     });
   }
 
-Future<void> addVariationType() async {
-  if (variationTypeController.text.isEmpty) {
-    print("Variation type name cannot be empty");
-    return;
-  }
+  Future<void> addVariationType() async {
+    if (variationTypeController.text.trim().isEmpty) return;
 
-  try {
-    final response = await http.post(
-      Uri.parse('http://172.19.10.208/food_order_api/add_variation_type.php'),
-      body: {
-        'food_variation_type_name': variationTypeController.text,
-        'tenant_id': widget.tenantId.toString(),  // Kirim tenant_id ke backend
-      },
-    );
+    try {
+      final response = await http.post(
+        Uri.parse('http://172.19.10.208/food_order_api/add_variation_type.php'),
+        body: {
+          'food_variation_type_name': variationTypeController.text.trim(),
+          'tenant_id': widget.tenantId.toString(),
+        },
+      );
 
-    print("Response status: ${response.statusCode}");
-    print("Response body: ${response.body}");
-
-    final jsonData = jsonDecode(response.body);
-    if (jsonData['success'] == true) {
-      print("Successfully added variation type: ${jsonData['food_variation_type_id']}");
-      await fetchVariationTypes();
-      setState(() {
-        selectedVariationTypeId = jsonData['food_variation_type_id'];
-      });
-      variationTypeController.clear();
-    } else {
-      print("Failed to add variation type: ${jsonData['message']}");
+      final jsonData = jsonDecode(response.body);
+      if (jsonData['success'] == true) {
+        await fetchVariationTypes();
+        setState(() {
+          selectedVariationTypeId = jsonData['food_variation_type_id'];
+        });
+        variationTypeController.clear();
+      } else {
+        _showSnackBar("Failed to add variation type: ${jsonData['message']}", isError: true);
+      }
+    } catch (e) {
+      print("Error in addVariationType: $e");
     }
-  } catch (e) {
-    print("Error in addVariationType: $e");
   }
-}
 
-Future<void> updateFood() async {
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? const Color(0xFFE11D48) : const Color(0xFF16A34A),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Future<void> updateFood() async {
+    if (selectedCategoryId == null) {
+      _showSnackBar("Please select a food category.", isError: true);
+      return;
+    }
+    if (nameController.text.trim().isEmpty) {
+      _showSnackBar("Food name is required.", isError: true);
+      return;
+    }
+    if (priceController.text.trim().isEmpty) {
+      _showSnackBar("Price is required.", isError: true);
+      return;
+    }
+    if (stockController.text.trim().isEmpty) {
+      _showSnackBar("Stock is required.", isError: true);
+      return;
+    }
+    if (descriptionController.text.trim().isEmpty) {
+      _showSnackBar("Description is required.", isError: true);
+      return;
+    }
+
+    setState(() {
+      isSubmitting = true;
+    });
+
     var uri = Uri.parse('http://172.19.10.208/food_order_api/update_food.php');
     var request = http.MultipartRequest('POST', uri);
 
     request.fields['food_id'] = widget.foodId.toString();
-    request.fields['food_name'] = nameController.text;
-    request.fields['food_price'] = priceController.text;
-    request.fields['food_stock'] = stockController.text;
-    request.fields['food_description'] = descriptionController.text;
+    request.fields['tenant_id'] = widget.tenantId.toString();
+    request.fields['food_name'] = nameController.text.trim();
+    request.fields['food_price'] = priceController.text.replaceAll(',', '').replaceAll('.', '').trim();
+    request.fields['food_stock'] = stockController.text.trim();
+    request.fields['food_description'] = descriptionController.text.trim();
     request.fields['food_category_id'] = selectedCategoryId.toString();
-   List<Map<String, dynamic>> processedVariations = variations.map((variation) {
-  return {
-    'food_variation_id': variation['food_variation_id']?.toString(),
-    'food_variation_name': variation['name'] ?? variation['food_variation_name'] ?? '',
-    'food_variation_price': variation['price'] ?? variation['food_variation_price'] ?? '',
-    'food_variation_stock': variation['stock'] ?? variation['food_variation_stock'] ?? '',
-    'food_variation_type_id': variation['food_variation_type_id']?.toString() ??
-        variation['type_id']?.toString() ?? '',
-  };
-}).toList();
 
-// ⬇️ Ini debug print-nya, untuk ngecek isi sebelum dikirim ke backend
-print("Processed Variations: ${jsonEncode(processedVariations)}");
+    List<Map<String, dynamic>> processedVariations = variations.map((variation) {
+      String rawPrice = (variation['price'] ?? variation['food_variation_price'] ?? '').toString();
+      String cleanPrice = rawPrice.replaceAll(',', '').replaceAll('.', '').trim();
 
-// ⬇️ Kirim ke backend
-request.fields['variations'] = jsonEncode(processedVariations);
+      return {
+        'food_variation_id': variation['food_variation_id']?.toString(),
+        'food_variation_name': (variation['name'] ?? variation['food_variation_name'] ?? '').toString().trim(),
+        'food_variation_price': cleanPrice,
+        'food_variation_stock': (variation['stock'] ?? variation['food_variation_stock'] ?? '').toString().trim(),
+        'food_variation_type_id': variation['food_variation_type_id']?.toString() ??
+            variation['type_id']?.toString() ?? '',
+      };
+    }).toList();
+
+    request.fields['variations'] = jsonEncode(processedVariations);
 
     if (_imageFile != null) {
       request.files.add(await http.MultipartFile.fromPath(
@@ -236,259 +310,677 @@ request.fields['variations'] = jsonEncode(processedVariations);
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
-      if (response.statusCode == 200) {
+      setState(() {
+        isSubmitting = false;
+      });
 
+      if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
-        if (responseData['success']) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Makanan berhasil diperbarui.")));
+        if (responseData['success'] == true) {
+          _showSnackBar("Makanan berhasil diperbarui.");
           Navigator.pop(context, true);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(responseData['message'])));
+          _showSnackBar(responseData['message'] ?? "Gagal memperbarui makanan.", isError: true);
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Gagal memperbarui makanan.")));
+        _showSnackBar("Gagal memperbarui makanan (Status: ${response.statusCode})", isError: true);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      setState(() {
+        isSubmitting = false;
+      });
+      _showSnackBar("Error: $e", isError: true);
     }
   }
 
+  InputDecoration _buildInputDecoration({
+    required String label,
+    String? hintText,
+    Widget? prefixIcon,
+    Widget? suffixIcon,
+    BoxConstraints? prefixIconConstraints,
+    double borderRadius = 14,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hintText,
+      prefixIcon: prefixIcon,
+      suffixIcon: suffixIcon,
+      prefixIconConstraints: prefixIconConstraints,
+      labelStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w500),
+      hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+      filled: true,
+      fillColor: const Color(0xFFF8FAFC),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(borderRadius),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(borderRadius),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(borderRadius),
+        borderSide: const BorderSide(color: Color(0xFF1E5BB0), width: 1.6),
+      ),
+    );
+  }
 
+  String _getImageUrl(String img) {
+    if (img.startsWith("http")) return img;
+    return "http://172.19.10.208/cihosFoodOrder/public/storage/$img";
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Edit Food")),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.black, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          "Edit Menu",
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
+          ),
+        ),
+        centerTitle: true,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(color: Colors.grey.shade200, height: 1),
+        ),
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.all(20.0),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextFormField(
-                controller: nameController,
-                decoration: InputDecoration(labelText: "Food Name"),
-                validator: (value) =>
-                    value!.isEmpty ? "Please enter a food name" : null,
-              ),
-              TextFormField(
-                controller: priceController,
-                decoration: InputDecoration(labelText: "Price"),
-                keyboardType: TextInputType.number,
-                validator: (value) =>
-                    value!.isEmpty ? "Please enter a price" : null,
-              ),
-              TextFormField(
-                controller: stockController,
-                decoration: InputDecoration(labelText: "Stock"),
-                keyboardType: TextInputType.number,
-                validator: (value) =>
-                    value!.isEmpty ? "Please enter stock amount" : null,
-              ),
-              TextFormField(
-                controller: descriptionController,
-                decoration: InputDecoration(labelText: "Description"),
-                maxLines: 3,
-              ),
-              SizedBox(height: 10),
-
-              // Tampilkan pesan error jika kategori gagal di-load
-              if (errorMessage.isNotEmpty)
-                Text(
-                  errorMessage,
-                  style: TextStyle(color: Colors.red),
-                ),
-
-
-              // Dropdown hanya ditampilkan jika kategori sudah dimuat
-              isLoading
-                  ? Center(child: CircularProgressIndicator())
-                  : DropdownButtonFormField<int>(
-  value: selectedCategoryId,
-  onChanged: (newValue) {
-    setState(() {
-      selectedCategoryId = newValue; // Harusnya ini mengubah nilai
-    });
-    print("New Selected Category: $selectedCategoryId"); // Debugging
-  },
-  items: categories.map<DropdownMenuItem<int>>((category) {
-    return DropdownMenuItem<int>(
-      value: category['food_category_id'],
-      child: Text(category['food_category_name']),
-    );
-  }).toList(),
-  decoration: InputDecoration(labelText: "Category"),
-),
-
- SizedBox(height: 10),
-                Text("Food Image"),
-                GestureDetector(
-                  onTap: pickImage,
-                  child: _imageFile != null
-    ? Image.file(_imageFile!, height: 100)
-    : (widget.foodImage != null && widget.foodImage!.isNotEmpty
-        ? Image.network(
-            widget.foodImage!.startsWith("http")
-                ? widget.foodImage!
-                : "http://172.19.10.208/cihosFoodOrder/public/storage/${widget.foodImage!}",
-            height: 100,
-            errorBuilder: (context, error, stackTrace) {
-              return Icon(Icons.broken_image, size: 50);
-            },
-          )
-
-
-        : Container(
-            height: 100,
-            color: Colors.grey[300],
-            child: Icon(Icons.image, size: 50),
-          )),
-
-                ),
-              SizedBox(height: 20),
-
-              const Text("Food Variations", style: TextStyle(fontWeight: FontWeight.bold)),
-...variations.asMap().entries.map((entry) {
-  int index = entry.key;
-  var variation = entry.value;
-
-  return Column(
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: DropdownButtonFormField<int>(
-              value: variation['food_variation_type_id'] is String
-                  ? int.tryParse(variation['food_variation_type_id'])
-                  : variation['food_variation_type_id'],
-              decoration: const InputDecoration(labelText: 'Variation Type'),
-              items: variationTypes.map((type) {
-                return DropdownMenuItem<int>(
-                  value: int.tryParse(type['food_variation_type_id'].toString()),
-                  child: Text(type['food_variation_type_name'].toString()),
-                );
-              }).toList(),
-              onChanged: (val) {
-                setState(() {
-                  variations[index]['type_id'] = val;
-                  variations[index]['food_variation_type_id'] = val;
-                });
-              },
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: "Add New Variation Type",
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) {
-                  return AlertDialog(
-                    title: const Text("Add New Variation Type"),
-                    content: TextField(
-                      controller: variationTypeController,
-                      decoration: const InputDecoration(labelText: "Variation Type Name"),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text("Cancel"),
+              // Photo Section
+              Center(
+                child: Column(
+                  children: [
+                    GestureDetector(
+                      onTap: pickImage,
+                      child: Container(
+                        width: 130,
+                        height: 130,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: (_imageFile != null || (widget.foodImage != null && widget.foodImage!.isNotEmpty))
+                                ? const Color(0xFF1E5BB0)
+                                : Colors.grey.shade300,
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: _imageFile != null
+                              ? Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.file(_imageFile!, fit: BoxFit.cover),
+                                    _buildChangeOverlay(),
+                                  ],
+                                )
+                              : (widget.foodImage != null && widget.foodImage!.isNotEmpty)
+                                  ? Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        Image.network(
+                                          _getImageUrl(widget.foodImage!),
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) =>
+                                              const Icon(Icons.broken_image_rounded, size: 40, color: Colors.grey),
+                                        ),
+                                        _buildChangeOverlay(),
+                                      ],
+                                    )
+                                  : Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: const [
+                                        Icon(Icons.add_photo_alternate_outlined, size: 38, color: Color(0xFF1E5BB0)),
+                                        SizedBox(height: 6),
+                                        Text(
+                                          "Upload Photo",
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF1E5BB0),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                        ),
                       ),
-                      ElevatedButton(
-                        onPressed: () async {
-                          await addVariationType(); // Pastikan fungsi ini tambah ke DB
-                          Navigator.pop(context);
-                        },
-                        child: const Text("Save"),
-                      ),
-                    ],
-                  );
-                },
-              );
-            },
-          ),
-        ],
-      ),
-
-                    TextFormField(
-                      initialValue: variation['food_variation_name'] ?? '',
-                      decoration: const InputDecoration(labelText: 'Variation Name'),
-                      onChanged: (val) => variations[index]['name'] = val,
                     ),
-                    TextFormField(
-                      initialValue: variation['food_variation_price']?.toString() ??'',
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Variation Price'),
-                      validator: (value) =>
-                          value!.isEmpty ? "Write 0 if this variation is free" : null,
-                      onChanged: (val) => variations[index]['price'] = val,
+                    const SizedBox(height: 8),
+                    Text(
+                      "Tap to change food photo",
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
-                    TextFormField(
-                      initialValue: variation['food_variation_stock']?.toString() ?? '',
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Variation Stock'),
-                      onChanged: (val) => variations[index]['stock'] = val,
-                    ),
-                    TextButton(
-                      onPressed: () => _removeVariationField(index),
-                      child: const Text("Hapus Variasi"),
-                    ),
-                    const Divider(),
                   ],
-                );
-              }).toList(),
-              TextButton.icon(
-                onPressed: _addVariationField,
-                icon: const Icon(Icons.add),
-                label: const Text("Tambah Variasi"),
+                ),
               ),
+              const SizedBox(height: 24),
+
+              // Food Details Card
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E5BB0),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          "Food Details",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Category Dropdown
+                    if (isLoading)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
+                      )
+                    else
+                      DropdownButtonFormField<int>(
+                        value: selectedCategoryId,
+                        borderRadius: BorderRadius.circular(16),
+                        isExpanded: true,
+                        items: categories.map<DropdownMenuItem<int>>((cat) {
+                          return DropdownMenuItem<int>(
+                            value: cat['food_category_id'],
+                            child: Text(
+                              cat['food_category_name'],
+                              style: const TextStyle(fontSize: 14, color: Colors.black),
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) => setState(() => selectedCategoryId = value),
+                        decoration: _buildInputDecoration(
+                          label: "Select Category",
+                          prefixIcon: const Icon(Icons.category_outlined, size: 20, color: Color(0xFF1E5BB0)),
+                          borderRadius: 16,
+                        ),
+                        dropdownColor: Colors.white,
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.black),
+                      ),
+                    const SizedBox(height: 14),
+
+                    // Food Name
+                    TextField(
+                      controller: nameController,
+                      style: const TextStyle(fontSize: 14, color: Colors.black),
+                      decoration: _buildInputDecoration(
+                        label: "Food Name",
+                        hintText: "e.g. Nasi Goreng Spesial",
+                        prefixIcon: const Icon(Icons.restaurant_outlined, size: 20, color: Color(0xFF1E5BB0)),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Price & Stock in Row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: priceController,
+                            keyboardType: TextInputType.number,
+                            onChanged: formatCurrency,
+                            style: const TextStyle(fontSize: 14, color: Colors.black),
+                            decoration: _buildInputDecoration(
+                              label: "Price",
+                              hintText: "25,000",
+                              prefixIcon: const Padding(
+                                padding: EdgeInsets.only(left: 14, right: 8),
+                                child: Text(
+                                  "Rp",
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1E5BB0),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: stockController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            style: const TextStyle(fontSize: 14, color: Colors.black),
+                            decoration: _buildInputDecoration(
+                              label: "Stock",
+                              hintText: "e.g. 50",
+                              prefixIcon: const Icon(Icons.inventory_2_outlined, size: 20, color: Color(0xFF1E5BB0)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Description
+                    TextField(
+                      controller: descriptionController,
+                      maxLines: 3,
+                      style: const TextStyle(fontSize: 14, color: Colors.black),
+                      decoration: _buildInputDecoration(
+                        label: "Description",
+                        hintText: "Enter a mouth-watering description of this dish...",
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Food Variations Card
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 4,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E5BB0),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              "Food Variations",
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          "${variations.length} Option${variations.length == 1 ? '' : 's'}",
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (variations.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade200, style: BorderStyle.solid),
+                        ),
+                        child: Center(
+                          child: Text(
+                            "No variations added for this menu yet.",
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                          ),
+                        ),
+                      )
+                    else
+                      ...variations.asMap().entries.map((entry) {
+                        int index = entry.key;
+                        var variation = entry.value;
+
+                        var typeValue = variation['food_variation_type_id'] is String
+                            ? int.tryParse(variation['food_variation_type_id'])
+                            : variation['food_variation_type_id'];
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 14),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Variation Type Selection & Add Button
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: DropdownButtonFormField<int>(
+                                      value: typeValue,
+                                      borderRadius: BorderRadius.circular(16),
+                                      isExpanded: true,
+                                      items: variationTypes.map((type) {
+                                        return DropdownMenuItem<int>(
+                                          value: int.tryParse(type['food_variation_type_id'].toString()),
+                                          child: Text(
+                                            type['food_variation_type_name'].toString(),
+                                            style: const TextStyle(fontSize: 14, color: Colors.black),
+                                          ),
+                                        );
+                                      }).toList(),
+                                      onChanged: (val) {
+                                        setState(() {
+                                          variations[index]['type_id'] = val;
+                                          variations[index]['food_variation_type_id'] = val;
+                                        });
+                                      },
+                                      decoration: _buildInputDecoration(
+                                        label: "Variation Type",
+                                        borderRadius: 16,
+                                      ),
+                                      dropdownColor: Colors.white,
+                                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.black),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    height: 48,
+                                    width: 48,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1E5BB0).withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: IconButton(
+                                      icon: const Icon(Icons.add_rounded, color: Color(0xFF1E5BB0), size: 22),
+                                      tooltip: "Add New Variation Type",
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (context) {
+                                            return AlertDialog(
+                                              backgroundColor: Colors.white,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                                              title: const Text(
+                                                "New Variation Type",
+                                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                                              ),
+                                              content: TextField(
+                                                controller: variationTypeController,
+                                                decoration: _buildInputDecoration(
+                                                  label: "Type Name",
+                                                  hintText: "e.g. Size, Spicy Level",
+                                                ),
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(context),
+                                                  child: Text("Cancel", style: TextStyle(color: Colors.grey.shade600)),
+                                                ),
+                                                ElevatedButton(
+                                                  onPressed: () async {
+                                                    await addVariationType();
+                                                    if (selectedVariationTypeId != null) {
+                                                      setState(() {
+                                                        variations[index]['food_variation_type_id'] = selectedVariationTypeId;
+                                                        variations[index]['type_id'] = selectedVariationTypeId;
+                                                      });
+                                                    }
+                                                    Navigator.pop(context);
+                                                  },
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: const Color(0xFF1E5BB0),
+                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                                  ),
+                                                  child: const Text("Save", style: TextStyle(color: Colors.white)),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+
+                              // Variation Name
+                              TextFormField(
+                                initialValue: variation['food_variation_name'] ?? variation['name'] ?? '',
+                                style: const TextStyle(fontSize: 14, color: Colors.black),
+                                decoration: _buildInputDecoration(
+                                  label: "Option Name",
+                                  hintText: "e.g. Large, Extra Hot",
+                                ),
+                                onChanged: (val) {
+                                  variations[index]['name'] = val;
+                                  variations[index]['food_variation_name'] = val;
+                                },
+                              ),
+                              const SizedBox(height: 10),
+
+                              // Price & Stock in Row
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      initialValue: (variation['food_variation_price'] ?? variation['price'] ?? '').toString(),
+                                      keyboardType: TextInputType.number,
+                                      style: const TextStyle(fontSize: 14, color: Colors.black),
+                                      onChanged: (val) => formatVariationCurrency(index, val),
+                                      decoration: _buildInputDecoration(
+                                        label: "Extra Price",
+                                        hintText: "0",
+                                        prefixIcon: const Padding(
+                                          padding: EdgeInsets.only(left: 14, right: 8),
+                                          child: Text(
+                                            "Rp",
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF1E5BB0),
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                        prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: TextFormField(
+                                      initialValue: (variation['food_variation_stock'] ?? variation['stock'] ?? '').toString(),
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                      style: const TextStyle(fontSize: 14, color: Colors.black),
+                                      decoration: _buildInputDecoration(
+                                        label: "Stock",
+                                        hintText: "e.g. 50",
+                                      ),
+                                      onChanged: (val) {
+                                        variations[index]['stock'] = val;
+                                        variations[index]['food_variation_stock'] = val;
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  onPressed: () => _removeVariationField(index),
+                                  icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFE11D48), size: 18),
+                                  label: const Text(
+                                    "Remove Option",
+                                    style: TextStyle(color: Color(0xFFE11D48), fontSize: 13, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+
+                    const SizedBox(height: 4),
+
+                    // Add Variation Option Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _addVariationField,
+                        icon: const Icon(Icons.add_rounded, color: Color(0xFF1E5BB0), size: 18),
+                        label: const Text(
+                          "Add Variation Option",
+                          style: TextStyle(
+                            color: Color(0xFF1E5BB0),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF1E5BB0), width: 1.2),
+                          backgroundColor: const Color(0xFF1E5BB0).withValues(alpha: 0.05),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // Submit Button
               SizedBox(
                 width: double.infinity,
+                height: 50,
                 child: ElevatedButton(
-                  onPressed: updateFood,
-                  child: Text("Update Food"),
+                  onPressed: isSubmitting ? null : updateFood,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E5BB0),
+                    foregroundColor: Colors.white,
+                    elevation: 2,
+                    shadowColor: const Color(0xFF1E5BB0).withValues(alpha: 0.3),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                          ),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.check_rounded, size: 20, color: Colors.white),
+                            SizedBox(width: 8),
+                            Text(
+                              "Update Menu",
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        ),
                 ),
               ),
+              const SizedBox(height: 24),
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildChangeOverlay() {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.5),
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: const Text(
+          "Change",
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
 }
-
-//    Future<void> updateFood() async {
-//   if (!_formKey.currentState!.validate()) return;
-
-//   print("Selected Category ID: $selectedCategoryId"); // Debugging ✅
-
-//   try {
-//     final response = await http.post(
-//       Uri.parse('http://172.19.10.208/food_order_api/update_food.php'),
-//       headers: {"Content-Type": "application/json"},
-//       body: jsonEncode({
-//         'food_id': widget.foodId,
-//         'tenant_id': widget.tenantId,
-//         'food_name': nameController.text,
-//         'food_price': priceController.text,
-//         'food_stock': stockController.text,
-//         'food_description': descriptionController.text,
-//         'food_category_id': selectedCategoryId,
-//       }),
-//     );
-
-//     print("Response Body: ${response.body}"); // Debugging ✅
-
-//     var responseData = jsonDecode(response.body);
-//     if (response.statusCode == 200 && responseData['success'] == true) {
-//       Navigator.pop(context, true);
-//     } else {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text(responseData['message'] ?? "Update failed")),
-//       );
-//     }
-//   } catch (e) {
-//     print("Error updating food: $e");
-//   }
-// }

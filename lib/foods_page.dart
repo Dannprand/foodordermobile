@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:food_order_cihos/add_food_page.dart';
 import 'package:food_order_cihos/edit_food_page.dart';
+import 'package:food_order_cihos/food_detail_page.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
@@ -261,11 +262,6 @@ class _FoodsPageState extends State<FoodsPage> {
       final q = searchQuery.toLowerCase();
       return name.contains(q) || desc.contains(q);
     }).toList();
-
-    final activeCount = foods.where((item) {
-      final stock = int.tryParse(item['food_stock'].toString()) ?? 0;
-      return stock > 0;
-    }).length;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -581,7 +577,6 @@ class _FoodsPageState extends State<FoodsPage> {
                             final String fullImageUrl = foodImageUrl.isNotEmpty
                                 ? "http://172.19.10.208/cihosFoodOrder/public/storage/$foodImageUrl"
                                 : '';
-                            final String categoryName = food['food_category_name'] ?? 'Menu';
 
                             return Container(
                               margin: const EdgeInsets.only(bottom: 14),
@@ -601,67 +596,98 @@ class _FoodsPageState extends State<FoodsPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Baris Atas: Image Thumbnail + Nama + Harga + Kategori Tag
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      // Image / Placeholder Makanan
-                                      Container(
-                                        width: 68,
-                                        height: 68,
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(16),
-                                          color: const Color(0xFFFEF9C3).withValues(alpha: 0.6),
-                                          border: Border.all(color: Colors.grey.shade200),
-                                          image: fullImageUrl.isNotEmpty
-                                              ? DecorationImage(
-                                                  image: NetworkImage(fullImageUrl),
-                                                  fit: BoxFit.cover,
+                                  // Baris Atas: Image Thumbnail + Nama + Harga + Kategori Tag (Clickable to open FoodDetailPage)
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(16),
+                                    onTap: () async {
+                                      final result = await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => FoodDetailPage(
+                                            tenantId: widget.tenantId,
+                                            foodId: food['food_id'],
+                                            initialFood: food,
+                                          ),
+                                        ),
+                                      );
+                                      if (result == true) {
+                                        if (selectedCategoryId == -1) {
+                                          fetchAllFoods();
+                                        } else {
+                                          fetchFoods(selectedCategoryId!);
+                                        }
+                                      }
+                                    },
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // Image / Placeholder Makanan
+                                        Container(
+                                          width: 68,
+                                          height: 68,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(16),
+                                            color: const Color(0xFFFEF9C3).withValues(alpha: 0.6),
+                                            border: Border.all(color: Colors.grey.shade200),
+                                            image: fullImageUrl.isNotEmpty
+                                                ? DecorationImage(
+                                                    image: NetworkImage(fullImageUrl),
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : null,
+                                          ),
+                                          child: fullImageUrl.isEmpty
+                                              ? const Center(
+                                                  child: Icon(
+                                                    Icons.restaurant_rounded,
+                                                    color: Color(0xFF1E5BB0),
+                                                    size: 28,
+                                                  ),
                                                 )
                                               : null,
                                         ),
-                                        child: fullImageUrl.isEmpty
-                                            ? const Center(
-                                                child: Icon(
-                                                  Icons.restaurant_rounded,
-                                                  color: Color(0xFF1E5BB0),
-                                                  size: 28,
-                                                ),
-                                              )
-                                            : null,
-                                      ),
-                                      const SizedBox(width: 14),
+                                        const SizedBox(width: 14),
 
-                                      // Detail Nama, Harga, Tag
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              food['food_name'] ?? '',
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black,
-                                                letterSpacing: -0.3,
+                                        // Detail Nama, Harga, Tag
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                food['food_name'] ?? '',
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.black,
+                                                  letterSpacing: -0.3,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              "Rp ${formatPrice(foodPrice)}",
-                                              style: const TextStyle(
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w800,
-                                                color: Color(0xFF1E5BB0),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                "Rp ${formatPrice(foodPrice)}",
+                                                style: const TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Color(0xFF1E5BB0),
+                                                ),
                                               ),
-                                            ),
-                                          ],
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 6),
+                                        const Padding(
+                                          padding: EdgeInsets.only(top: 18),
+                                          child: Icon(
+                                            Icons.arrow_forward_ios_rounded,
+                                            size: 14,
+                                            color: Color(0xFF94A3B8),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                   const SizedBox(height: 12),
                                   Divider(height: 1, color: Colors.grey.shade100),
