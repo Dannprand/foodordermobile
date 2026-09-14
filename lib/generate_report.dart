@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:excel/excel.dart';
-import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 
 // Format Rupiah

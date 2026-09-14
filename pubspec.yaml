@@ -47,13 +47,13 @@ dependencies:
   pdf: ^3.10.4
   path_provider: ^2.1.2
   permission_handler: ^11.3.1
-  open_file: ^3.3.2
   share_plus: ^7.2.1
   flutter_pdfview: ^1.3.1
   pdfx: ^2.5.0
   excel: ^2.0.6
   syncfusion_flutter_xlsio: ^29.2.11
   media_store_plus: ^0.0.5
+  google_fonts: ^8.2.1
 
 dev_dependencies:
   flutter_test:
@@ -86,7 +86,9 @@ flutter:
   assets:
      - assets/cihos.png
      - assets/background.png
+     - assets/Ciputra-Hospital-Surabaya.jpg
      - assets/images/sheet_logo.png
+     - assets/icon/logoapp.jpg
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

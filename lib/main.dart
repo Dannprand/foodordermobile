@@ -5,6 +5,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:google_fonts/google_fonts.dart';
+
 import 'notification_service.dart';
 import 'login_page.dart';
 import 'orders_page.dart';
@@ -105,6 +107,9 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primaryColor: const Color(0xFF075E9C),
         scaffoldBackgroundColor: Colors.white,
+        textTheme: GoogleFonts.kumbhSansTextTheme(
+          Theme.of(context).textTheme,
+        ),
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
           selectedItemColor: Color(0xFF075E9C),
           unselectedItemColor: Colors.grey,
